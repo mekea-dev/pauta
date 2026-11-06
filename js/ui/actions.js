@@ -1,7 +1,14 @@
 // Ações que a pessoa dispara na tela (concluir, mover, excluir...), sempre com aviso e "Desfazer".
-import { monthGrid, relativeDay } from '../dates.js';
+import { formatShort, monthGrid, relativeDay } from '../dates.js';
+import { remindLabel } from '../reminders.js';
 import { clip } from './dom.js';
 import { confirmDialog, toast } from './overlay.js';
+
+/** "terça, 10 nov" (o dia da semana ajuda a conferir o que a fala entendeu); datas distantes já vêm como "10 nov". */
+function dayAndDate(date, today) {
+  const rel = relativeDay(date, today);
+  return /\d/.test(rel) ? rel : `${rel.toLowerCase()}, ${formatShort(date)}`;
+}
 
 export function createActions(app) {
   const { store } = app;
@@ -69,6 +76,17 @@ export function createActions(app) {
       if (!ok) return;
       store.clearDone();
       toast('Concluídas removidas', { action: undo() });
+    },
+
+    /** Tarefa criada por voz: a pessoa não viu o texto, então diz o que foi entendido (e deixa desfazer). */
+    addedByVoice(task, { remindLost = false } = {}) {
+      app.ui.flashId = task.id;
+      const parts = [];
+      if (task.date) parts.push(`${dayAndDate(task.date, store.today())}${task.time ? ` às ${task.time}` : ''}`);
+      else parts.push('sem data');
+      if (task.remind !== null) parts.push(`avisa ${remindLabel(task.remind).toLowerCase()}`);
+      else if (remindLost) parts.push('sem lembrete (faltou a hora)');
+      toast(`Criada: “${clip(task.title, 40)}” · ${parts.join(' · ')}`, { action: undo(), timeout: 10000 });
     },
 
     /** Depois de criar uma tarefa: destaca a linha e, se ela não aparece na tela atual, avisa onde foi parar. */

@@ -2,7 +2,7 @@
 // Estratégia: rede primeiro (quando há internet você sempre recebe a versão mais nova, que é
 // revalidada a cada abertura) e, sem rede, a cópia guardada. Os dados das tarefas NÃO passam por aqui:
 // ficam no localStorage da página.
-const VERSION = '1.3.0'; // manter igual a APP_VERSION em js/config.js (há um teste que confere)
+const VERSION = '1.4.0'; // manter igual a APP_VERSION em js/config.js (há um teste que confere)
 const CACHE = `pauta-${VERSION}`;
 
 // Todo arquivo novo do app precisa entrar nesta lista (o teste tests/sw.test.js avisa se faltar).
@@ -18,6 +18,12 @@ const ASSETS = [
   './js/dates.js',
   './js/recurrence.js',
   './js/parser.js',
+  './js/voice.js',
+  './js/speech.js',
+  './js/reminders.js',
+  './js/alerts.js',
+  './js/push.js',
+  './js/push-config.js',
   './js/model.js',
   './js/store.js',
   './js/persist.js',
@@ -35,6 +41,7 @@ const ASSETS = [
   './js/ui/actions.js',
   './js/ui/taskrow.js',
   './js/ui/composer.js',
+  './js/ui/notify.js',
   './js/ui/views.js',
   './js/ui/calendar.js',
   './js/ui/sidebar.js',
@@ -72,6 +79,86 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   if (new URL(req.url).origin !== self.location.origin) return;
   event.respondWith(networkFirst(req));
+});
+
+// ---------- avisos dos lembretes ----------
+// Com o app fechado, o serviço de lembretes (worker/lembretes.js) manda um "toque" (push) SEM conteúdo na hora do aviso. Quem sabe o
+// que mostrar é este service worker, lendo a cópia da lista de avisos que a página guardou no aparelho (cache "avisos-v1", escrito
+// por js/alerts.js). Os títulos das tarefas nunca passam pelo serviço de lembretes.
+// Regra do iPhone: TODO toque precisa virar uma notificação (senão o sistema cancela a inscrição); por isso o último aviso é mostrado
+// de novo quando não há nenhum novo (mesmo "tag": a notificação é trocada, não duplicada).
+const MIRROR = 'avisos-v1'; // o mesmo nome de js/alerts.js (um teste confere)
+const LATE_MS = 30 * 60000; // 30 min depois do horário da tarefa o aviso já não faz sentido (igual a js/reminders.js)
+const FRESH_MS = 5 * 60000; // aviso que chega com até 5 min de atraso mantém o texto "em 15 minutos"
+const SHOWN_KEEP_MS = 3 * 86400000;
+
+const mirrorUrl = (key) => new URL(`./__${key}.json`, self.location.href).href;
+
+async function readMirror(key, fallback) {
+  try {
+    const hit = await (await caches.open(MIRROR)).match(mirrorUrl(key));
+    return hit ? await hit.json() : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function writeMirror(key, value) {
+  try {
+    await (await caches.open(MIRROR)).put(mirrorUrl(key), new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } }));
+  } catch { /* sem espaço: segue sem anotar */ }
+}
+
+/** Título e opções da notificação de um aviso (as mesmas de js/ui/notify.js). */
+function notificationFor(r, now) {
+  const body = now - r.at <= FRESH_MS ? r.body : r.day; // atrasado: o "em 15 minutos" estaria errado
+  return [r.title, {
+    body: body ?? '', tag: r.id, icon: './icons/icon-192.png', badge: './icons/icon-192.png', lang: 'pt-BR',
+    data: { taskId: r.taskId ?? null }, ...(r.dueAt ? { timestamp: r.dueAt } : {}),
+  }];
+}
+
+async function showReminders() {
+  const now = Date.now();
+  const saved = await readMirror('avisos', []);
+  const shown = await readMirror('mostrados', {});
+  const seen = shown && typeof shown === 'object' && !Array.isArray(shown) ? shown : {};
+  const ready = (Array.isArray(saved) ? saved : [])
+    .filter((r) => r && typeof r.id === 'string' && r.at <= now && r.dueAt + LATE_MS >= now)
+    .sort((a, b) => a.at - b.at);
+  const fresh = ready.filter((r) => !seen[r.id]);
+  const toShow = fresh.length ? fresh : ready.slice(-1);
+  if (!toShow.length) {
+    await self.registration.showNotification('Pauta', { body: 'Você tem um lembrete. Abra o app para ver.', tag: 'pauta-aviso', icon: './icons/icon-192.png', lang: 'pt-BR', data: { taskId: null } });
+    return;
+  }
+  for (const r of toShow) await self.registration.showNotification(...notificationFor(r, now));
+  if (!fresh.length) return;
+  for (const r of fresh) seen[r.id] = now;
+  const kept = Object.fromEntries(Object.entries(seen).filter(([, at]) => at > now - SHOWN_KEEP_MS));
+  await writeMirror('mostrados', kept);
+}
+
+self.addEventListener('push', (event) => {
+  event.waitUntil(showReminders());
+});
+
+/** Tocou na notificação: foca o app (e abre a tarefa) se ele já está aberto; senão abre. */
+async function openApp(taskId) {
+  const scope = self.registration.scope;
+  const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const open = windows.find((w) => w.url.startsWith(scope));
+  if (open) {
+    try { await open.focus(); } catch { /* o sistema pode recusar: a mensagem ainda abre a tarefa */ }
+    open.postMessage({ type: 'abrir-tarefa', id: taskId ?? null });
+    return;
+  }
+  await self.clients.openWindow(new URL(taskId ? `#/tarefa/${encodeURIComponent(taskId)}` : '', scope).href);
+}
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(openApp(event.notification.data?.taskId ?? null));
 });
 
 const withTimeout = (promise, ms) => Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))]);

@@ -5,6 +5,7 @@
 // O texto é "dobrado" (minúsculas, sem acento, mesmo comprimento) para casar os padrões,
 // e os trechos reconhecidos são recortados do texto ORIGINAL pelos mesmos índices.
 import { addDays, addMonths, daysInMonth, isValidDate, parseISO, startOfWeek, toISO, todayISO, weekday } from './dates.js';
+import { MAX_REMIND } from './model.js';
 import { finalizeRule, firstOccurrence } from './recurrence.js';
 import { fold } from './text.js';
 
@@ -24,10 +25,10 @@ const ORDINAL_NEXT = /^\s+(?:via|parcela|chamada|opiniao|vez|etapa|fase|serie|te
 const START = '(^|\\s)';
 const END = '(?=$|[\\s.,;:!?])';
 const PREP = '(?:(?:para|pra|ate|em|no|na|ao|do|da|de)\\s+)?';
-const TRAILING_CONNECTOR = /(?:^|\s)(?:para|pra|em|no|na|nos|nas|ate|as|às|ao|de|do|da|por)$/i;
+const TRAILING_CONNECTOR = /(?:^|\s)(?:para|pra|em|no|na|nos|nas|ate|as|às|ao|de|do|da|por|e|com)$/i;
 
 /** Qual `ignore` desliga cada tipo de trecho reconhecido. */
-export const IGNORE_KEY = { date: 'date', time: 'time', priority: 'priority', recurrence: 'recurrence', label: 'labels' };
+export const IGNORE_KEY = { date: 'date', time: 'time', priority: 'priority', recurrence: 'recurrence', label: 'labels', remind: 'remind' };
 
 /** Procura o primeiro casamento para o qual make() devolve um valor. */
 function scan(f, src, make) {
@@ -65,6 +66,17 @@ const okHM = (h, mi = 0) => h >= 0 && h <= 23 && mi >= 0 && mi <= 59;
 const num = (w) => (/^\d+$/.test(w) ? +w : NUM[w]);
 const unitOf = (w) => (w.startsWith('dia') ? 'day' : w.startsWith('semana') ? 'week' : w.startsWith('mes') ? 'month' : 'year');
 
+/** "15" + "minutos" -> 15; "1" + "hora" -> 60; "meia" + "hora" -> 30; "2" + "dias" -> 2880. Devolve null se não faz sentido. */
+function remindMinutes(amount, unit) {
+  const half = amount === 'meia' || amount === 'meio';
+  const n = half ? 0.5 : num(amount);
+  if (!n) return null;
+  const perUnit = /^min/.test(unit) ? 1 : /^dia/.test(unit) ? 1440 : 60;
+  const minutes = Math.round(n * perUnit);
+  if (half && perUnit === 1) return null; // "meio minuto" não é lembrete
+  return minutes >= 1 && minutes <= MAX_REMIND ? minutes : null;
+}
+
 /**
  * @param {string} input texto digitado
  * @param {{today?: string, weekStart?: number, ignore?: object}} opts
@@ -75,7 +87,7 @@ export function parseQuickAdd(input, { today = todayISO(), weekStart = 1, ignore
   let f = fold(text);
   const cuts = [];
   const tokens = [];
-  const res = { title: '', date: null, time: null, priority: null, labels: [], recurrence: null, tokens };
+  const res = { title: '', date: null, time: null, priority: null, labels: [], recurrence: null, remind: null, tokens };
 
   // Recorta o trecho casado (sem o espaço inicial) e devolve o texto original dele.
   const cut = (m) => {
@@ -137,6 +149,25 @@ export function parseQuickAdd(input, { today = todayISO(), weekStart = 1, ignore
       if (hit) {
         rule = hit.value;
         tokens.push({ type: 'recurrence', text: cut(hit.m) });
+        break;
+      }
+    }
+  }
+
+  // ---- lembrete ("despertador"): "me avise 15 minutos antes", "lembrete 1 hora antes", "avisar na hora" ----
+  // Precisa de uma palavra de aviso (avise, lembrete, alarme...): "Chegar 10 minutos antes" continua sendo só título.
+  if (!ignore.remind) {
+    const kw = '(?:(?:me )?(?:avis[ae]r?|lembr[ae]r?|alert[ae]r?|notific[ae]r?)(?:-me)?|lembrete|alarme|despertador|aviso|alerta)';
+    const attempts = [
+      [`${START}${kw}(?:\\s+(?:de|com|em|para|por))?\\s+(\\d{1,4}|${NUM_SRC}|meia|meio)\\s*(minutos?|mins?|horas?|hrs?|hs?|dias?)\\s+(?:de\\s+)?(?:antes|antecedencia)${END}`,
+        (m) => remindMinutes(m[2], m[3])],
+      [`${START}${kw}\\s+(?:na hora|no horario|no momento|pontualmente)${END}`, () => 0],
+    ];
+    for (const [src, make] of attempts) {
+      const hit = scan(f, src, make);
+      if (hit) {
+        res.remind = hit.value;
+        tokens.push({ type: 'remind', text: cut(hit.m), value: hit.value });
         break;
       }
     }

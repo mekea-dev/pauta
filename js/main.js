@@ -1,8 +1,11 @@
 // Ponto de entrada: carrega os dados, liga as peças e desenha a tela.
 import { STORAGE_KEY, THEME_KEY } from './config.js';
 import { isValidDate, todayISO } from './dates.js';
+import { createAlerts, createMirror } from './alerts.js';
 import { sanitizeState, seedState } from './model.js';
 import { getStorage, loadState, saveState } from './persist.js';
+import { createPush } from './push.js';
+import { PUSH } from './push-config.js';
 import { createStore } from './store.js';
 import { CLOUD, cloudEnabled } from './cloud/config.js';
 import { SESSION_KEY, createCloud } from './cloud/firebase.js';
@@ -12,6 +15,7 @@ import { createActions } from './ui/actions.js';
 import { createComposer } from './ui/composer.js';
 import { h, isTouch, qs } from './ui/dom.js';
 import { createEditor } from './ui/editor.js';
+import { createNotifier } from './ui/notify.js';
 import { initToasts, toast } from './ui/overlay.js';
 import { createSettings } from './ui/settings.js';
 import { installShortcuts } from './ui/shortcuts.js';
@@ -88,6 +92,28 @@ app.cloudConfig = CLOUD;
 app.cloud = cloudEnabled() ? createCloud({ config: CLOUD, storage }) : null;
 app.sync = app.cloud ? createSync({ store, cloud: app.cloud, config: CLOUD }) : null;
 app.account = createAccountUI(app);
+// lembretes: avisa na hora certa (com o app aberto, aqui; com o app fechado, pelo serviço de lembretes + sw.js). A escolha de
+// ligar ou desligar vale só para este aparelho (por isso fica fora dos dados que vão para a nuvem).
+const ALERTS_PREF = 'pauta:avisos';
+app.alerts = createAlerts({
+  store,
+  mirror: createMirror(),
+  push: createPush({ workerUrl: PUSH.workerUrl }),
+  notify: createNotifier(app),
+  prefs: {
+    get() {
+      try {
+        const v = storage.getItem(ALERTS_PREF);
+        return v === 'on' || v === 'off' ? v : null;
+      } catch {
+        return null;
+      }
+    },
+    set(v) {
+      try { storage.setItem(ALERTS_PREF, v); } catch { /* sem armazenamento: vale só nesta sessão */ }
+    },
+  },
+});
 app.editor = createEditor(app);
 app.settings = createSettings(app);
 app.composer = createComposer(app);
@@ -188,6 +214,26 @@ addEventListener('hashchange', () => {
   app.toggleSidebar(false);
   window.scrollTo({ top: 0 });
   render();
+  openTaskFromHash();
+});
+
+// Tocou numa notificação: o service worker abre o app em #/tarefa/<id> (ou manda uma mensagem se o app já estava aberto).
+function openTask(id) {
+  if (!id) return;
+  if (store.find(id)) app.editor.open(id);
+  else toast('Essa tarefa não existe mais neste aparelho.');
+}
+function openTaskFromHash() {
+  const m = /^#\/tarefa\/([^/]+)/.exec(location.hash);
+  if (!m || app.account.gated) return;
+  const id = decodeURIComponent(m[1]);
+  history.replaceState(null, '', `${location.pathname}${location.search}#/`); // não reabre ao recarregar
+  app.ui.route = parseRoute('#/');
+  render();
+  openTask(id);
+}
+navigator.serviceWorker?.addEventListener('message', (e) => {
+  if (e.data?.type === 'abrir-tarefa') openTask(e.data.id);
 });
 
 qs('#scrim').addEventListener('click', () => app.toggleSidebar(false));
@@ -287,4 +333,6 @@ applyTheme();
 app.ui.route = parseRoute(location.hash);
 app.account.start(); // login obrigatório: sem sessão, a tela de entrada vem antes de qualquer tarefa
 paint(); // primeiro desenho na hora, sem esperar o próximo quadro
+openTaskFromHash();
 if (!isTouch() && !app.account.gated) setTimeout(() => app.composer.focus(), 0);
+app.alerts.start().catch(() => {}); // lembretes: nunca podem impedir o app de abrir

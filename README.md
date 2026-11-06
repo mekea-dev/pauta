@@ -19,6 +19,8 @@ Escreva a tarefa do jeito que você falaria (`Pagar boleto amanhã 10h !alta #co
 - **Checklist** dentro da tarefa: marque os itens direto na lista, cole uma lista de várias linhas e ela vira vários itens.
 - **Anotações** dentro da tarefa (links viram atalhos clicáveis).
 - **Repetição**: todo dia, dias úteis, dias da semana, a cada N semanas, todo mês, todo ano. Ao concluir, a próxima já é criada; as repetições futuras aparecem esmaecidas na agenda e no calendário.
+- **Lembretes** ("despertador"): numa tarefa com data e hora, escolha ser avisado 5 minutos, 1 hora, 1 dia... antes (ou escreva `me avise 15 minutos antes`). Avisa com o app aberto sem configurar nada; com o app fechado (celular), precisa de um pequeno serviço gratuito na Cloudflare: [docs/LEMBRETES.md](docs/LEMBRETES.md).
+- **Voz**: o botão do microfone ao lado de Adicionar entende uma frase como "crie uma tarefa pagar boleto para dia 10 às 16 horas" e cria a tarefa (com Desfazer). No app da Tela de Início do iPhone o iOS não permite o microfone do navegador; lá vale o microfone do teclado.
 - **Calendário** do mês, **Próximos dias**, **Pendentes**, **Sem data**, **Concluídas** e **busca** (título, anotações, etiquetas e checklist).
 - **Desfazer** (aviso na tela e `Ctrl+Z`), atalhos de teclado e **tema claro, escuro ou automático** (botão no topo da tela).
 - **Conta** (opcional, ou obrigatória se você preferir): login por e-mail e senha para ver as mesmas tarefas em todos os aparelhos, com sincronização automática (Firebase, plano gratuito). Passo a passo em [docs/NUVEM.md](docs/NUVEM.md).
@@ -44,10 +46,15 @@ Escreva a tarefa do jeito que você falaria (`Pagar boleto amanhã 10h !alta #co
 | `!urgente` `!alta` `!media` `!baixa` (ou `!u` `!a` `!m` `!b`) | prioridade |
 | `#trabalho` `#casa` | etiquetas (criadas se ainda não existirem) |
 | `todo dia`, `dias úteis`, `toda segunda e quarta`, `a cada 2 semanas`, `todo mês`, `todo dia 5`, `todo ano` | repetição |
+| `me avise 15 minutos antes`, `lembrete 1 hora antes`, `me avise meia hora antes`, `me avise na hora` | lembrete (precisa de data e hora) |
 
-Exemplos: `Reunião com fornecedor sexta 14:30 !alta #trabalho` · `Academia toda segunda e quarta 19h` · `Dentista dia 20/11 às 15h`.
+Exemplos: `Reunião com fornecedor sexta 14:30 !alta #trabalho` · `Academia toda segunda e quarta 19h` · `Dentista dia 20/11 às 15h, me avise 1 hora antes`.
 
 Detalhes que evitam surpresa: "segunda via do boleto" **não** vira segunda-feira; "estudar 2h" é uma duração, não um horário; `#4521` (número de chamado) não vira etiqueta. Se algo for interpretado errado, clique no X do item na pré-visualização.
+
+### Lembretes e voz
+
+Em **Configurações > Avisos dos lembretes**, ligue os avisos em cada aparelho. Para a notificação chegar **com o app fechado**, instale uma vez o serviço de lembretes (Cloudflare, grátis, uns 10 minutos); o serviço só recebe os **horários** dos lembretes, nunca os títulos das tarefas. No **iPhone**, as notificações exigem o Pauta instalado na Tela de Início (iOS 16.4 ou mais novo). Tudo isso, mais o que a voz entende e o que fazer quando algo não funciona, está em [docs/LEMBRETES.md](docs/LEMBRETES.md).
 
 ### Atalhos de teclado
 
@@ -145,22 +152,23 @@ Ele serve o site em `http://127.0.0.1:8790/` (código de convite `FAMILIA2026`; 
 node --test
 ```
 
-Também dá para rodar no navegador, sem Node: com o servidor local no ar, abra `/tests/`. O GitHub Actions roda os mesmos testes a cada envio (`.github/workflows/ci.yml`). Eles cobrem datas, repetição, o interpretador de frases, o estado e o desfazer, busca/ordenação, backup/importação, a mescla da sincronização (inclusive uma simulação com três aparelhos), o login e a nuvem (com um Firebase de mentira) e a consistência do "pacote" do site (lista do modo offline, caminhos relativos, política de segurança, regras do banco).
+Também dá para rodar no navegador, sem Node: com o servidor local no ar, abra `/tests/`. O GitHub Actions roda os mesmos testes a cada envio (`.github/workflows/ci.yml`). Eles cobrem datas, repetição, o interpretador de frases (inclusive o jeito falado de pedir), os lembretes (o motor, o serviço de lembretes, a inscrição e o service worker), o microfone, o estado e o desfazer, busca/ordenação, backup/importação, a mescla da sincronização (inclusive uma simulação com três aparelhos), o login e a nuvem (com um Firebase de mentira) e a consistência do "pacote" do site (lista do modo offline, caminhos relativos, política de segurança, regras do banco).
 
 ### Estrutura
 
 ```
 index.html            página única
 css/app.css           estilos (tema claro/escuro por variáveis no topo)
-js/                   lógica pura, sem tela: dates, recurrence, parser, model, store, query, io, persist
+js/                   lógica pura, sem tela: dates, recurrence, parser, voice, reminders, alerts, push, speech, model, store, query, io, persist
 js/sync/              mescla dos dados entre aparelhos (sem rede)
 js/cloud/             login e banco do Firebase por REST, e o motor de sincronização
 js/ui/                a tela: lista, editor, calendário, menu, configurações, conta...
-sw.js                 service worker (modo offline)
+sw.js                 service worker (modo offline e notificações dos lembretes)
+worker/lembretes.js   serviço de lembretes (Cloudflare Worker): não faz parte do site, é colado no painel da Cloudflare
 manifest.webmanifest  instalação como app
 icons/                ícones do app (scripts/gerar-icones.ps1 recria os PNGs)
 scripts/              gerar-icones.ps1 e emulador-nuvem.py
-docs/                 guia da nuvem (NUVEM.md), regras do banco e imagens deste README
+docs/                 guias (NUVEM.md e LEMBRETES.md), regras do banco e imagens deste README
 tests/                testes (Node e navegador)
 ```
 
@@ -175,7 +183,7 @@ tests/                testes (Node e navegador)
 
 - **A sincronização exige um projeto Firebase seu** (grátis; guia em [docs/NUVEM.md](docs/NUVEM.md)). Sem isso, só há backup e importação manual. Cada conta tem as próprias tarefas: **não há listas compartilhadas entre pessoas diferentes**.
 - Se a **mesma** tarefa for editada em dois aparelhos antes de sincronizar, vale a edição mais recente. Cada pessoa pode guardar cerca de 900 KB na nuvem (mais de 1.600 tarefas completas).
-- **Sem lembretes/notificações**: o app não avisa quando uma tarefa chega na hora.
+- **Lembretes com o app fechado dependem de um serviço seu na Cloudflare** (grátis; guia em [docs/LEMBRETES.md](docs/LEMBRETES.md)); sem ele, o app só avisa enquanto está aberto. O aviso tem a precisão de 1 minuto, e uma tarefa concluída em outro aparelho ainda pode avisar neste até o app abrir e sincronizar. No iPhone, as notificações só existem com o app instalado na Tela de Início, e o microfone do navegador não funciona lá (use o do teclado).
 - Tarefas que repetem mostram só a próxima ocorrência como tarefa de verdade; as seguintes aparecem esmaecidas e viram tarefa quando você conclui a atual.
 - O login e a nuvem foram testados com um Firebase de mentira (emulador e testes automáticos); faça o passo "Testar no seu computador" do guia com o seu projeto antes de convidar pessoas.
 

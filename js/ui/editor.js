@@ -1,8 +1,9 @@
 // Janela de edição da tarefa: título, anotações, checklist, data/hora, prioridade, etiquetas e repetição.
 // Tudo é gravado enquanto você digita (sem botão "Salvar").
-import { WEEKDAYS, addDays, capitalize, formatStamp, startOfWeek, todayISO, weekday, weekdayLabels } from '../dates.js';
+import { WEEKDAYS, addDays, capitalize, formatStamp, relativeDay, startOfWeek, todayISO, weekday, weekdayLabels } from '../dates.js';
 import { LIMITS, PRIORITIES, uid } from '../model.js';
 import { PRESETS, describe, presetOf } from '../recurrence.js';
+import { REMIND_PRESETS, remindAt, remindLabel } from '../reminders.js';
 import { h, isTouch } from './dom.js';
 import { icon } from './icons.js';
 
@@ -158,6 +159,11 @@ export function createEditor(app) {
     });
     c.timeClear = h('button', { class: 'icon-btn sm', type: 'button', 'aria-label': 'Tirar a hora', title: 'Tirar a hora', onclick: () => queue({ time: null }, true) }, icon('x', 14));
 
+    // --- lembrete: um aviso X minutos antes da hora (só existe com data e hora) ---
+    c.remind = h('select', { class: 'input', 'aria-label': 'Lembrete', onchange: () => queue({ remind: c.remind.value === '' ? null : Number(c.remind.value) }, true) });
+    c.remindHint = h('div', { class: 'hint remind-hint' });
+    remindSig = '';
+
     // --- prioridade ---
     c.prio = PRIORITIES.map((p) => h('button', {
       class: `seg-btn p${p.value}`, type: 'button', 'aria-pressed': false, dataset: { value: String(p.value) },
@@ -217,6 +223,7 @@ export function createEditor(app) {
       h('div', { class: 'ed-fields' },
         row('calendar', 'Data', h('div', { class: 'ctrl-line' }, c.date, c.dateHint), h('div', { class: 'ctrl-line wrap' }, quick)),
         row('clock', 'Hora', h('div', { class: 'ctrl-line' }, c.time, c.timeClear)),
+        row('bell', 'Lembrete', c.remind, c.remindHint),
         row('flag', 'Prioridade', h('div', { class: 'seg', role: 'group', 'aria-label': 'Prioridade' }, c.prio)),
         row('tag', 'Etiquetas', c.labels, c.newLabel),
         row('repeat', 'Repetir', c.rec, c.recCustom, c.recHint)),
@@ -253,6 +260,7 @@ export function createEditor(app) {
     c.dateHint.textContent = t.date ? capitalize(WEEKDAYS[weekday(t.date)]) : 'Sem data';
     if (document.activeElement !== c.time) c.time.value = t.time ?? '';
     c.timeClear.hidden = !t.time;
+    syncRemind(t);
     for (const b of c.prio) b.setAttribute('aria-pressed', String(Number(b.dataset.value) === t.priority));
 
     const labels = store.state.labels;
@@ -280,6 +288,45 @@ export function createEditor(app) {
     c.recHint.hidden = !t.recurrence;
     c.created.textContent = t.done && t.doneAt ? `Concluída em ${formatStamp(t.doneAt)}` : `Criada em ${formatStamp(t.createdAt)}`;
     updateBanner();
+  }
+
+  // ---------- lembrete ----------
+  let remindSig = ''; // as opções do seletor só são refeitas quando mudam (mexer nelas com o seletor aberto o fecharia)
+
+  function syncRemind(t) {
+    const remind = t.remind ?? null;
+    const hasTime = Boolean(t.date && t.time);
+    const options = [['', 'Sem lembrete'], ...REMIND_PRESETS.map((m) => [String(m), remindLabel(m)])];
+    if (remind !== null && !REMIND_PRESETS.includes(remind)) { // valor fora da lista (45 min, 3 horas...): aparece também
+      options.push([String(remind), remindLabel(remind)]);
+      options.sort((a, b) => (a[0] === '' ? -1 : b[0] === '' ? 1 : Number(a[0]) - Number(b[0])));
+    }
+    const sig = options.map((o) => o[0]).join(',');
+    if (sig !== remindSig) {
+      remindSig = sig;
+      c.remind.replaceChildren(...options.map(([value, label]) => h('option', { value }, label)));
+    }
+    c.remind.value = remind === null ? '' : String(remind);
+    c.remind.disabled = !hasTime;
+    c.remindHint.replaceChildren(...remindHint(t, remind, hasTime));
+  }
+
+  function remindHint(t, remind, hasTime) {
+    if (!hasTime) return ['Escolha uma data e uma hora para poder ter lembrete.'];
+    if (remind === null) return ['Escolha quanto tempo antes você quer ser avisado.'];
+    const at = remindAt(t);
+    const lines = [at.getTime() <= Date.now() ? 'Esse horário de aviso já passou.' : `Você será avisado ${relativeDay(todayISO(at), store.today()).toLowerCase()} às ${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}.`];
+    const a = app.alerts.status();
+    if (a.muted) lines.push(' Os avisos estão desligados neste aparelho (veja em Configurações).');
+    else if (a.permission === 'denied') lines.push(' Os avisos estão bloqueados neste aparelho: libere nas configurações do sistema.');
+    else if (a.permission === 'unsupported') lines.push(' Este navegador não mostra avisos. No iPhone, abra o Pauta pela Tela de Início.');
+    else if (a.permission === 'default') {
+      lines.push(' ', h('button', {
+        class: 'link-btn', type: 'button',
+        onclick: async () => { await app.alerts.enable(); if (c) refresh(); },
+      }, 'Ativar avisos neste aparelho'));
+    }
+    return lines;
   }
 
   function onRecChange(id) {

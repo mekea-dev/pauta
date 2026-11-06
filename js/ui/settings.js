@@ -28,7 +28,10 @@ export function createSettings(app) {
   let downOnBackdrop = false;
   dlg.addEventListener('pointerdown', (e) => { downOnBackdrop = e.target === dlg; });
   dlg.addEventListener('click', (e) => { if (e.target === dlg && downOnBackdrop) dlg.close(); });
-  dlg.addEventListener('close', () => { paletteFor = null; status = null; });
+  let alertsBusy = false;
+  let alertsStatus = null; // { text, bad } resultado da última ação na seção de avisos
+  dlg.addEventListener('close', () => { paletteFor = null; status = null; alertsStatus = null; });
+  app.alerts.onChange(() => { if (dlg.open) render(); });
 
   const say = (text, bad = false) => { status = { text, bad }; render(); };
 
@@ -45,6 +48,74 @@ export function createSettings(app) {
         seg([[1, 'Segunda'], [0, 'Domingo']], settings.weekStart, (v) => store.setSettings({ weekStart: v }), 'Primeiro dia da semana')),
       h('label', { class: 'st-row switch-row' }, h('span', {}, 'Mostrar tarefas concluídas na tela do dia'),
         h('input', { class: 'switch', type: 'checkbox', role: 'switch', checked: settings.showDone, onchange: (e) => store.setSettings({ showDone: e.target.checked }) })));
+  }
+
+  // ---------- avisos (lembretes) ----------
+  /** Roda uma ação da seção de avisos mostrando "aguarde" e, no fim, o resultado em texto. */
+  async function alertsAction(run) {
+    if (alertsBusy) return;
+    alertsBusy = true;
+    alertsStatus = null;
+    render();
+    try {
+      alertsStatus = await run();
+    } catch (e) {
+      alertsStatus = { text: `Não deu certo: ${e?.message ?? e}`, bad: true };
+    }
+    alertsBusy = false;
+    render();
+  }
+
+  const enableResult = (r) => {
+    if (r.ok) return { text: 'Avisos ligados neste aparelho. Eles chegam na hora certa, mesmo com o app fechado.' };
+    switch (r.reason) {
+      case 'denied': return { text: 'Você não permitiu os avisos. Libere nas configurações do aparelho e tente de novo.', bad: true };
+      case 'dismissed': return { text: 'Nada mudou: o pedido de permissão foi fechado sem resposta.' };
+      case 'unsupported': return { text: 'Este navegador não mostra avisos do sistema.', bad: true };
+      case 'push': return { text: `Os avisos com o app aberto estão ligados, mas não consegui ligar os avisos com o app fechado: ${r.detail || 'erro desconhecido'}.`, bad: true };
+      default: return { text: 'Os avisos com o app aberto estão ligados. Com o app fechado, este navegador não recebe avisos.' };
+    }
+  };
+
+  function alertsSection() {
+    const a = app.alerts.status();
+    const on = a.permission === 'granted' && !a.muted;
+    let text;
+    if (a.permission === 'unsupported') text = 'Este navegador não mostra avisos do sistema. Com o app aberto, o lembrete aparece na tela. No iPhone, abra o Pauta pela Tela de Início (Compartilhar, depois Adicionar à Tela de Início) para receber também com o app fechado.';
+    else if (a.permission === 'denied') text = 'Os avisos estão bloqueados. Libere nas configurações do aparelho (iPhone: Ajustes, Notificações, Pauta; computador: permissões do site, no navegador).';
+    else if (a.muted) text = 'Desligados neste aparelho.';
+    else if (a.permission === 'default') text = 'Desligados neste aparelho. Ligue para ser avisado antes das tarefas que têm lembrete.';
+    else if (a.push === 'on') text = 'Ligados. O aviso chega na hora certa, mesmo com o app fechado.';
+    else if (a.push === 'unsupported') text = 'Ligados, mas só com o app aberto: este navegador não recebe avisos com o app fechado. No iPhone, abra o Pauta pela Tela de Início.';
+    else if (a.push === 'unconfigured') text = 'Ligados só com o app aberto: o serviço de lembretes ainda não está configurado (guia em docs/LEMBRETES.md).';
+    else text = `Ligados só com o app aberto: não consegui ligar os avisos com o app fechado${a.detail ? ` (${a.detail})` : ''}. Toque em “Ligar de novo”.`;
+
+    const btn = (label, onClick, { primary = false, iconName = 'bell' } = {}) => h('button', {
+      class: `btn btn-sm${primary ? ' btn-primary' : ''}`, type: 'button', disabled: alertsBusy, onclick: onClick,
+    }, icon(iconName, 15), label);
+
+    const buttons = [];
+    if (a.permission === 'default' || a.muted) buttons.push(btn('Ligar avisos', () => alertsAction(async () => enableResult(await app.alerts.enable())), { primary: true }));
+    if (on && a.push === 'off') buttons.push(btn('Ligar de novo', () => alertsAction(async () => enableResult(await app.alerts.enable())), { primary: true }));
+    if (on) {
+      buttons.push(btn('Testar agora', () => alertsAction(async () => {
+        const r = await app.alerts.test();
+        return { text: r.system ? 'Enviei um aviso de teste. Se ele apareceu, está tudo certo neste aparelho.' : 'Mostrei o aviso de teste na tela. O aviso do sistema não saiu: confira a permissão do aparelho.', bad: !r.system };
+      }), { iconName: 'check' }));
+      if (a.push === 'on') {
+        buttons.push(btn('Testar com o app fechado', () => alertsAction(async () => {
+          await app.alerts.test({ later: true });
+          return { text: 'Combinado: em cerca de 1 minuto chega um aviso de teste. Feche o app agora e espere até 2 minutos.' };
+        }), { iconName: 'clock' }));
+      }
+      buttons.push(btn('Desligar', () => alertsAction(async () => { await app.alerts.disable(); return { text: 'Avisos desligados neste aparelho.' }; }), { iconName: 'bell-off' }));
+    }
+    return h('section', { class: 'st-section', id: 'st-avisos' },
+      h('h3', {}, 'Avisos dos lembretes'),
+      h('p', { class: 'muted' }, text),
+      buttons.length ? h('div', { class: 'btn-row' }, buttons) : null,
+      alertsStatus ? h('p', { class: `status${alertsStatus.bad ? ' bad' : ''}`, role: 'status' }, alertsStatus.text) : null,
+      h('p', { class: 'muted' }, 'O serviço que dá o aviso com o app fechado só recebe o horário dos lembretes, nunca o título ou o conteúdo das suas tarefas.'));
   }
 
   function labelRow(l, n) {
@@ -201,7 +272,7 @@ export function createSettings(app) {
         h('h2', { id: 'st-title', class: 'dialog-title' }, 'Configurações'),
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fechar', onclick: () => dlg.close() }, icon('x', 20))),
       h('div', { class: 'settings-scroll' },
-        app.account.section(), prefsSection(settings), labelsSection(labels, c), dataSection(settings), installSection(), shortcutsSection(),
+        app.account.section(), prefsSection(settings), alertsSection(), labelsSection(labels, c), dataSection(settings), installSection(), shortcutsSection(),
         h('p', { class: 'about muted' }, `${APP_NAME} v${APP_VERSION} · feito para rodar no GitHub Pages, sem servidor e sem rastreamento.`))));
     dlg.querySelector('.settings-scroll').scrollTop = top;
   }
@@ -209,6 +280,7 @@ export function createSettings(app) {
   return {
     open(section) {
       render();
+      app.alerts.refresh().catch(() => {}); // a situação dos avisos pode ter mudado (permissão dada nas configurações do aparelho)
       if (!dlg.open) dlg.showModal();
       if (section) dlg.querySelector(`#st-${section}`)?.scrollIntoView({ block: 'start' });
     },

@@ -351,6 +351,16 @@ body[data-route="month"] .main-inner { max-width: 1120px; }
 .pv-warn { padding: 3px 4px; color: var(--text-3); font-size: 13px; }
 .composer-hint { margin: 9px 6px 0; color: var(--text-3); font-size: 13px; }
 .composer-hint b { color: var(--text-2); font-weight: 600; }
+.composer-mic { position: relative; color: var(--text-2); }
+.composer-mic:hover { color: var(--accent); }
+.composer-mic.is-listening { background: var(--danger-soft); color: var(--danger); }
+.composer-mic.is-listening::after { content: ""; position: absolute; inset: 0; border: 2px solid var(--danger); border-radius: inherit; animation: mic-pulse 1.3s ease-out infinite; }
+@keyframes mic-pulse { from { transform: scale(1); opacity: .65; } to { transform: scale(1.55); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .composer-mic.is-listening::after { animation: none; opacity: .5; } }
+.composer-note { margin: 9px 6px 0; color: var(--text-2); font-size: 13.5px; }
+.composer-note[data-kind="warn"] { color: var(--danger); }
+.pv-chip.warn { background: var(--danger-soft); color: var(--danger); }
+.pv-chip.pv-title { padding-right: 10px; background: var(--surface-2); color: var(--text); }
 .shake { animation: shake .3s; }
 
 /* ---------- blocos e listas ---------- */

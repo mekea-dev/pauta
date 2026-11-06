@@ -95,7 +95,7 @@ test('JavaScript e CSS não usam caminhos absolutos', async () => {
 
 test('sem emojis nem símbolos pictográficos (setas, marcas, bolinhas): use os ícones SVG', async () => {
   const pictografico = /[\u{1F000}-\u{1FAFF}\u{2190}-\u{21FF}\u{2300}-\u{23FF}\u{25A0}-\u{25FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u;
-  const arquivos = new Set(['index.html', 'README.md', 'docs/NUVEM.md', ...(await swAssets()).filter((a) => /\.(js|css)$/.test(a)).map((a) => a.replace(/^\.\//, ''))]);
+  const arquivos = new Set(['index.html', 'README.md', 'docs/NUVEM.md', 'docs/LEMBRETES.md', ...(await swAssets()).filter((a) => /\.(js|css)$/.test(a)).map((a) => a.replace(/^\.\//, ''))]);
   const achados = [];
   for (const f of arquivos) {
     const m = pictografico.exec(await readText(f));
@@ -157,6 +157,16 @@ test('o emulador entrega todas as opções de js/cloud/config.js (senão o app t
   }
   const faltando = chaves.filter((k) => !new RegExp(`^ {2}${k}:`, 'm').test(emulador));
   assert.deepEqual(faltando, [], 'opções que o emulador não entrega');
+});
+
+test('lembretes: o endereço do serviço (js/push-config.js) está liberado na política de conteúdo e é https', async () => {
+  const url = /workerUrl:\s*'([^']*)'/.exec(await readText('js/push-config.js'))?.[1];
+  assert.notEqual(url, undefined, 'workerUrl não encontrado em js/push-config.js');
+  if (!url) return; // vazio = sem avisos com o app fechado
+  assert.ok(url.startsWith('https://'), 'o serviço precisa ser https');
+  const html = await readText('index.html');
+  const connect = /connect-src([^;"]*)/.exec(html)?.[1] ?? '';
+  assert.ok(connect.split(/\s+/).includes(new URL(url).origin), `connect-src do index.html não libera ${new URL(url).origin}`);
 });
 
 test('segurança: política de conteúdo no HTML, sem script ou estilo embutido', async () => {

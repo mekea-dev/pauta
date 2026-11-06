@@ -66,6 +66,22 @@ test('planilha: BOM, separador ";", aspas e proteção contra fórmula', () => {
   assert.ok(csv.endsWith('\r\n'));
 });
 
+test('planilha: coluna Lembrete (só com hora) no fim de cada linha', () => {
+  const com = { ...createTask({ title: 'Reunião', date: '2026-11-10', time: '16:00', remind: 15 }, NOW), id: 'a' };
+  const sem = { ...createTask({ title: 'Ligar', date: '2026-11-10', time: '17:00' }, NOW), id: 'b' };
+  const [head, a, b] = toCSV({ tasks: [com, sem], labels: [] }).split('\r\n');
+  assert.ok(head.endsWith(';Criada em;Lembrete'));
+  assert.ok(a.endsWith(';15 minutos antes'));
+  assert.ok(b.endsWith(';'), 'sem lembrete: célula vazia');
+});
+
+test('backup em JSON preserva o lembrete', () => {
+  const t = { ...createTask({ title: 'Reunião', date: '2026-11-10', time: '16:00', remind: 60 }, NOW), id: 'a' };
+  const r = parseImport(exportJSON({ tasks: [t], labels: [], settings: defaultSettings() }, new Date(NOW)));
+  assert.ok(r.ok);
+  assert.equal(r.state.tasks[0].remind, 60);
+});
+
 test('nome do arquivo de backup', () => {
   assert.equal(backupFileName('json', new Date(2026, 10, 6)), 'pauta-2026-11-06.json');
 });

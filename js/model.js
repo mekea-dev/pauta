@@ -24,6 +24,8 @@ export const LABEL_COLOR_NAMES = {
 export const AUTO_COLORS = ['blue', 'violet', 'teal', 'green', 'pink', 'indigo', 'amber', 'gray'];
 
 export const LIMITS = { title: 300, notes: 20000, checkItem: 300, checklist: 200, labelName: 40, labelsPerTask: 20 };
+/** Maior antecedência do lembrete: 7 dias, em minutos. */
+export const MAX_REMIND = 10080;
 
 export function uid() {
   const bytes = new Uint8Array(8);
@@ -49,6 +51,12 @@ const isoStamp = (v, dflt) => {
   return Number.isNaN(t) ? dflt : new Date(t).toISOString();
 };
 const cleanId = (v) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 64) : null);
+/** Lembrete: minutos de antecedência (0 = na hora). Só existe em tarefa com data e hora; fora disso vira null. */
+const cleanRemind = (v, hasTime) => {
+  if (!hasTime || v === null || v === undefined || v === '') return null;
+  const n = Math.trunc(Number(v));
+  return Number.isInteger(n) && n >= 0 && n <= MAX_REMIND ? n : null;
+};
 
 /** Itens do checklist. `keepEmpty` mantém linhas em branco (usado enquanto a pessoa digita). */
 export function sanitizeChecklist(raw, { keepEmpty = false } = {}) {
@@ -70,12 +78,14 @@ export function sanitizeChecklist(raw, { keepEmpty = false } = {}) {
 /** Cria uma tarefa nova com valores válidos. */
 export function createTask(partial = {}, now = new Date().toISOString()) {
   const date = isValidDate(partial.date) ? partial.date : null;
+  const time = date && isValidTime(partial.time) ? partial.time : null;
   return {
     id: uid(),
     title: cleanTitle(partial.title),
     notes: cleanNotes(partial.notes),
     date,
-    time: date && isValidTime(partial.time) ? partial.time : null,
+    time,
+    remind: cleanRemind(partial.remind, Boolean(time)),
     priority: clampPriority(partial.priority),
     labels: [...new Set((Array.isArray(partial.labels) ? partial.labels : []).filter((x) => typeof x === 'string'))].slice(0, LIMITS.labelsPerTask),
     checklist: sanitizeChecklist(partial.checklist, { keepEmpty: true }),
@@ -94,6 +104,7 @@ export function sanitizeTask(raw, { now = new Date().toISOString(), labelIds = n
   const title = cleanTitle(raw.title);
   if (!title) return null;
   const date = isValidDate(raw.date) ? raw.date : null;
+  const time = date && isValidTime(raw.time) ? raw.time : null;
   const createdAt = isoStamp(raw.createdAt, now);
   const updatedAt = isoStamp(raw.updatedAt, createdAt);
   const done = raw.done === true;
@@ -102,7 +113,8 @@ export function sanitizeTask(raw, { now = new Date().toISOString(), labelIds = n
     title,
     notes: cleanNotes(raw.notes),
     date,
-    time: date && isValidTime(raw.time) ? raw.time : null,
+    time,
+    remind: cleanRemind(raw.remind, Boolean(time)),
     priority: clampPriority(raw.priority),
     labels: [...new Set((Array.isArray(raw.labels) ? raw.labels : []).filter((x) => typeof x === 'string' && (!labelIds || labelIds.has(x))))].slice(0, LIMITS.labelsPerTask),
     checklist: sanitizeChecklist(raw.checklist, { keepEmpty: keepEmptyItems }),

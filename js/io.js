@@ -2,6 +2,7 @@
 import { formatDateBR, formatStamp } from './dates.js';
 import { sanitizeState, priorityLabel } from './model.js';
 import { describe } from './recurrence.js';
+import { remindLabel } from './reminders.js';
 import { fold } from './text.js';
 
 /** Backup completo em JSON (tarefas, etiquetas, configurações). */
@@ -63,7 +64,7 @@ export function mergeState(local, incoming) {
 }
 
 // Planilha: ";" como separador e BOM UTF-8, para abrir direto no Excel em português.
-const HEAD = ['Título', 'Anotações', 'Data', 'Hora', 'Prioridade', 'Etiquetas', 'Status', 'Concluída em', 'Repetição', 'Checklist', 'Itens do checklist', 'Criada em'];
+const HEAD = ['Título', 'Anotações', 'Data', 'Hora', 'Prioridade', 'Etiquetas', 'Status', 'Concluída em', 'Repetição', 'Checklist', 'Itens do checklist', 'Criada em', 'Lembrete'];
 
 function cell(v) {
   let s = String(v ?? '');
@@ -90,6 +91,7 @@ export function toCSV(state) {
         total ? `${t.checklist.filter((c) => c.done).length}/${total}` : '',
         t.checklist.map((c) => `${c.done ? '[x]' : '[ ]'} ${c.text}`).join('\n'),
         formatStamp(t.createdAt),
+        t.remind != null && t.time ? remindLabel(t.remind) : '',
       ];
     });
   return `﻿${[HEAD, ...rows].map((r) => r.map(cell).join(';')).join('\r\n')}\r\n`;
