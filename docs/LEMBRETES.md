@@ -72,5 +72,6 @@ Para desinstalar: apague o Worker e o banco D1 no painel da Cloudflare e deixe `
 
 - **"Ligar avisos" não faz nada ou a permissão aparece como bloqueada**: libere as notificações do Pauta nas configurações do aparelho (iPhone: Ajustes, Notificações, Pauta) e volte em Configurações para ligar de novo.
 - **Ligou, mas diz "só com o app aberto"**: o serviço não respondeu. Confira o endereço em `js/push-config.js`, o `ALLOWED_ORIGINS` do Worker e se o passo 7 mostra a chave.
+- **O aviso com o app fechado não chega, mesmo ligado**: no painel da Cloudflare, abra o Worker, **Observability**, **Logs**, e procure por `push recusado`. A linha diz qual serviço (Apple, Google...) recusou e com que código (por exemplo, 400, 401 ou 403 indicam que o serviço não aceitou a assinatura; 429 e 5xx são falhas passageiras). Cada aviso é tentado até 6 vezes.
 - **Chega um aviso "Você tem um lembrete"** em vez do título: a lista guardada no aparelho estava desatualizada (por exemplo, o aparelho ficou dias sem abrir o app). Abra o Pauta para atualizar.
 - **No iPhone, o botão do microfone só leva ao campo de texto**: é o esperado no app da Tela de Início (veja Voz, acima). Use o microfone do teclado.

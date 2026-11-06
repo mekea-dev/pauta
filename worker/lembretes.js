@@ -219,7 +219,11 @@ export async function runScheduled(env, { now = Date.now(), repo = createRepo(en
       }
       if (status >= 200 && status < 300) result.sent.push(endpoint);
       else if (status === 404 || status === 410) result.gone.push(endpoint); // o aparelho cancelou a inscrição
-      else result.retry.push(endpoint);
+      else {
+        // sem isso ninguém descobre por que um aviso não chegou: aparece no painel da Cloudflare, em Observability > Logs (só o servidor e o código, nada do aparelho)
+        console.warn(`push recusado: ${new URL(endpoint).host} respondeu ${status || 'nada (erro de rede)'}`);
+        result.retry.push(endpoint);
+      }
     }));
     await repo.applyResults(result, now);
   }
