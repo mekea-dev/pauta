@@ -1,0 +1,17 @@
+name: Testes
+
+# Roda os testes a cada envio (push) e a cada pull request.
+# Não publica nada: o site é publicado pelo próprio GitHub Pages (veja o README).
+on:
+  push:
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test

@@ -1,0 +1,24 @@
+# sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# dependências e logs (o projeto não precisa de nada instalado, mas por garantia)
+node_modules/
+npm-debug.log*
+
+# editores
+.vscode/
+.idea/
+
+# backups pessoais exportados pelo app: NÃO suba para o repositório público
+pauta-*.json
+pauta-*.csv
+
+# chaves e segredos (o Pauta não usa nenhum, mas por garantia estes nunca sobem)
+.env
+.env.*
+*-firebase-adminsdk-*.json
+serviceAccount*.json
+*.pem
+*.key

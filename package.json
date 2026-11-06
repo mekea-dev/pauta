@@ -1,0 +1,13 @@
+{
+  "name": "pauta",
+  "version": "1.0.0",
+  "description": "Pauta: agenda de tarefas diárias que roda direto no navegador (GitHub Pages), com prioridades, etiquetas, checklist e anotações.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

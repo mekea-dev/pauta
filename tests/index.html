@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Testes — Pauta</title>
+  <!-- No navegador, "node:test" e "node:assert/strict" apontam para versões mínimas em tests/shim -->
+  <script type="importmap">
+    { "imports": { "node:test": "./shim/runner.js", "node:assert/strict": "./shim/assert.js" } }
+  </script>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; max-width: 880px; margin: 24px auto; padding: 0 16px; color: #1a1d24; }
+    h1 { font-size: 20px; }
+    #resumo { font-weight: 700; padding: 8px 12px; border-radius: 8px; background: #eee; }
+    #resumo.ok { background: #d3f9d8; color: #18631f; }
+    #resumo.fail { background: #ffe3e3; color: #a51111; }
+    ol { list-style: none; padding: 0; }
+    li { padding: 2px 0; font-size: 13.5px; }
+    li.ok { color: #2b7a35; }
+    li.fail { color: #c92a2a; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Testes do Pauta</h1>
+  <p id="resumo">Executando…</p>
+  <ol id="out"></ol>
+  <script type="module">
+    import { run } from './shim/runner.js';
+    const arquivos = ['dates', 'recurrence', 'parser', 'model', 'query', 'store', 'merge', 'cloud', 'io', 'site'];
+    try {
+      for (const a of arquivos) await import(`./${a}.test.js`);
+    } catch (e) {
+      document.getElementById('resumo').textContent = `Erro ao carregar os testes: ${e.message}`;
+      document.getElementById('resumo').className = 'fail';
+      window.__testResults = { passed: 0, failed: 1, total: 1, failures: [{ name: 'carregar', message: String(e.message) }] };
+      throw e;
+    }
+    await run(document.getElementById('out'), document.getElementById('resumo'));
+  </script>
+</body>
+</html>

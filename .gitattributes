@@ -1,0 +1,5 @@
+# Mantém os arquivos com quebra de linha LF no repositório (evita diferença entre Windows e Linux)
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.ps1 text eol=crlf

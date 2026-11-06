@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Pauta · suas tarefas do dia</title>
+  <meta name="description" content="Pauta: agenda de tarefas diárias com prioridades, etiquetas, checklist e anotações. Funciona sem internet e guarda tudo no seu navegador.">
+  <meta name="theme-color" content="#f4f5f9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
+  <!-- Defesa extra: só carrega código e estilos deste próprio site -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.firebaseio.com https://*.firebasedatabase.app; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/app.css">
+  <script src="js/theme-init.js"></script>
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" id="sidebar" aria-label="Menu principal"></aside>
+    <div class="scrim" id="scrim" hidden></div>
+    <div class="main">
+      <div class="main-inner">
+        <div id="topbar"></div>
+        <div id="notice"></div>
+        <div id="composer"></div>
+        <main id="view" tabindex="-1" aria-live="off"></main>
+      </div>
+    </div>
+  </div>
+  <button class="fab" id="fab" type="button" aria-label="Nova tarefa" hidden>
+    <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+  <noscript><p style="padding:24px;font-family:sans-serif">O Pauta precisa de JavaScript para funcionar. Ative o JavaScript no navegador e recarregue a página.</p></noscript>
+</body>
+</html>
