@@ -22,3 +22,7 @@ pauta-*.csv
 serviceAccount*.json
 *.pem
 *.key
+
+# Python (emulador local)
+__pycache__/
+*.pyc

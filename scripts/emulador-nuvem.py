@@ -3,13 +3,14 @@
 
 Serve o site e imita, em memória, o que o app usa do Firebase: cadastro e login por e-mail/senha,
 tokens que vencem, e o Realtime Database com as mesmas regras do guia (so o dono le/grava o proprio no;
-criar o no exige o codigo de convite). Nada sai da sua maquina e tudo some ao fechar.
+criar o no exige o codigo de convite, salvo com --sem-convite). Nada sai da sua maquina e tudo some ao fechar.
 
 Uso:
     python scripts/emulador-nuvem.py                  # http://127.0.0.1:8790/
     python scripts/emulador-nuvem.py --ttl 90         # token vale 90 s (testa a renovacao automatica)
     python scripts/emulador-nuvem.py --recente 20     # login "recente" vale 20 s (testa a exclusao da conta)
     python scripts/emulador-nuvem.py --login-opcional # o app abre sem exigir conta (o padrao exige, como o site publicado)
+    python scripts/emulador-nuvem.py --sem-convite    # cadastro aberto: criar conta sem codigo (o padrao pede o codigo)
 
 Para simular DOIS aparelhos use dois enderecos: http://localhost:8790/ e http://127.0.0.1:8790/
 (enderecos diferentes = armazenamento do navegador separado). Codigo de convite padrao: FAMILIA2026.
@@ -35,7 +36,7 @@ CONFIG_JS = """export const CLOUD = {
   apiKey: 'emulador',
   databaseUrl: '/__emulador/db',
   exigirLogin: __EXIGIR_LOGIN__,
-  exigirConvite: true,
+  exigirConvite: __EXIGIR_CONVITE__,
   identityUrl: '/__emulador/identity/v1',
   tokenUrl: '/__emulador/token/v1',
 };
@@ -65,8 +66,10 @@ LOCK = threading.Lock()
 
 
 def documento_valido(v):
-    """Espelho do ".validate" de docs/regras-banco.json: so os campos conhecidos, com os tipos e tamanhos certos."""
-    if not isinstance(v, dict) or any(k not in ('v', 'updatedAt', 'sig', 'blob', 'convite') for k in v):
+    """Espelho do ".validate" de docs/regras-banco.json (ou de regras-banco-aberto.json, sem o campo `convite`):
+    so os campos conhecidos, com os tipos e tamanhos certos."""
+    campos = ('v', 'updatedAt', 'sig', 'blob') if ESTADO.convite is None else ('v', 'updatedAt', 'sig', 'blob', 'convite')
+    if not isinstance(v, dict) or any(k not in campos for k in v):
         return False
 
     def texto(k, maximo):
@@ -190,8 +193,8 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError:
                     return self.json(400, {'error': 'Invalid data; couldn\'t parse JSON object'})
                 convite = valor.get('convite') if isinstance(valor, dict) else None
-                if caminho not in ESTADO.dados and not (isinstance(convite, str) and convite == ESTADO.convite):
-                    return self.json(401, {'error': 'Permission denied'})  # regra: criar exige o convite
+                if ESTADO.convite is not None and caminho not in ESTADO.dados and not (isinstance(convite, str) and convite == ESTADO.convite):
+                    return self.json(401, {'error': 'Permission denied'})  # regra: criar exige o convite (so quando ha codigo)
                 if not documento_valido(valor):
                     return self.json(401, {'error': 'Permission denied'})  # regra ".validate" (docs/regras-banco.json)
                 ESTADO.dados[caminho] = valor
@@ -221,7 +224,8 @@ class Handler(BaseHTTPRequestHandler):
         caminho = unquote(url.path)
         q = parse_qs(url.query)
         if caminho == '/js/cloud/config.js' and metodo in ('GET', 'HEAD'):
-            config = CONFIG_JS.replace('__EXIGIR_LOGIN__', 'false' if LOGIN_OPCIONAL else 'true')
+            config = (CONFIG_JS.replace('__EXIGIR_LOGIN__', 'false' if LOGIN_OPCIONAL else 'true')
+                      .replace('__EXIGIR_CONVITE__', 'false' if ESTADO.convite is None else 'true'))
             return self.enviar(200, config.encode('utf-8'), MIME['.js'])
         if caminho.startswith('/__emulador/identity/v1/accounts:') and metodo == 'POST':
             return self.identidade(caminho.split(':', 1)[1], q)
@@ -262,14 +266,16 @@ def main():
     ap.add_argument('--porta', type=int, default=8790)
     ap.add_argument('--login-opcional', action='store_true', help='o app abre sem exigir conta (por padrao o emulador exige login, como o site publicado)')
     ap.add_argument('--convite', default='FAMILIA2026')
+    ap.add_argument('--sem-convite', action='store_true', help='cadastro aberto: quem abre o site cria a conta, sem codigo (como o site publicado)')
     ap.add_argument('--ttl', type=int, default=3600, help='validade do token, em segundos')
     ap.add_argument('--recente', type=int, default=300, help='por quantos segundos um login conta como recente (excluir a conta exige isso)')
     args = ap.parse_args()
     LOGIN_OPCIONAL = args.login_opcional
-    ESTADO = Estado(args.convite, args.ttl, args.recente)
+    ESTADO = Estado(None if args.sem_convite else args.convite, args.ttl, args.recente)
     servidor = ThreadingHTTPServer(('127.0.0.1', args.porta), Handler)
     print(f'Emulador do Pauta em http://127.0.0.1:{args.porta}/  (aparelho 2: http://localhost:{args.porta}/)')
-    print(f'Codigo de convite: {args.convite} | token vale {args.ttl}s | Ctrl+C para parar')
+    convite_txt = 'Cadastro aberto (sem codigo de convite)' if args.sem_convite else f'Codigo de convite: {args.convite}'
+    print(f'{convite_txt} | token vale {args.ttl}s | Ctrl+C para parar')
     try:
         servidor.serve_forever()
     except KeyboardInterrupt:

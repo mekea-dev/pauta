@@ -87,7 +87,7 @@ O app é um site estático (HTML, CSS e JavaScript puros): **não precisa de bui
 
 Para atualizar o app, é só enviar a mudança de novo; o GitHub Pages republica sozinho. O arquivo `.nojekyll` já está no projeto (evita processamento desnecessário do Jekyll).
 
-**Login e sincronização:** antes ou depois de publicar, siga o guia [docs/NUVEM.md](docs/NUVEM.md): você cria um projeto gratuito no Firebase e preenche `js/cloud/config.js`. Sem isso o app funciona normalmente, só que cada aparelho com as próprias tarefas. Com a nuvem ligada, a opção `exigirLogin` decide se a conta é obrigatória (`true`: o app só abre depois de entrar) ou opcional (`false`).
+**Login e sincronização:** antes ou depois de publicar, siga o guia [docs/NUVEM.md](docs/NUVEM.md): você cria um projeto gratuito no Firebase e preenche `js/cloud/config.js`. Sem isso o app funciona normalmente, só que cada aparelho com as próprias tarefas. Com a nuvem ligada, a opção `exigirLogin` decide se a conta é obrigatória (`true`: o app só abre depois de entrar) ou opcional (`false`), e `exigirConvite` decide se criar conta pede um código de convite (`true`, grupo fechado) ou se quem tiver o endereço do site pode se cadastrar (`false`); as regras do banco precisam combinar com essa escolha.
 
 ### Instalar como aplicativo
 
@@ -105,13 +105,13 @@ Para atualizar o app, é só enviar a mudança de novo; o GitHub Pages republica
 
 **Com conta**
 
-- Com `exigirLogin: true`, o app só abre para quem entrou: a tela de entrada vem antes de qualquer tarefa. É uma regra do próprio app (quem baixar o código pode desligá-la no computador dele); o que protege os dados na nuvem é o login, as regras do banco e o código de convite.
+- Com `exigirLogin: true`, o app só abre para quem entrou: a tela de entrada vem antes de qualquer tarefa. É uma regra do próprio app (quem baixar o código pode desligá-la no computador dele); o que protege os dados na nuvem é o login e as regras do banco (e, se você quiser um grupo fechado, o código de convite).
 - As tarefas de cada pessoa ficam guardadas no **seu projeto Firebase** (do Google), ligadas ao e-mail dela, e também no aparelho, então o app continua funcionando sem internet. Quem administra o projeto consegue ver os dados; as regras do banco impedem que uma pessoa veja os de outra. Avise quem você convidar. Não há criptografia de ponta a ponta: não guarde segredos (senhas, cartões) nas tarefas.
 - **Sair deste aparelho** remove as tarefas dali (elas continuam na conta). **Excluir minha conta** pede a senha e apaga a conta e os dados da nuvem.
 
 **O repositório público não expõe senhas nem tarefas**
 
-- Senhas e tarefas nunca vão para o repositório: a senha é digitada no app e vai direto para o Firebase, e as tarefas ficam no Firebase, protegidas por login, regras do banco e código de convite.
+- Senhas e tarefas nunca vão para o repositório: a senha é digitada no app e vai direto para o Firebase, e as tarefas ficam no Firebase, protegidas por login e regras do banco (e, se você usar, por um código de convite).
 - No repositório ficam o código e a chave de API do Firebase para web. Essa chave só identifica o projeto e qualquer visitante do site a recebe (mesmo se o repositório fosse privado), então **não é segredo**.
 - Deixar o repositório **privado** no plano gratuito do GitHub tira o site do ar. Alternativas (plano pago ou outro serviço de hospedagem gratuito) em [docs/NUVEM.md](docs/NUVEM.md#e-se-eu-quiser-o-repositório-privado).
 - Seu nome aparece no arquivo `LICENSE` (direitos autorais); troque por seu usuário do GitHub se preferir.
@@ -137,7 +137,7 @@ Para testar o login e a sincronização **sem criar nada no Firebase**, rode o e
 python scripts/emulador-nuvem.py
 ```
 
-Ele serve o site em `http://127.0.0.1:8790/` (código de convite `FAMILIA2026`). Abra também `http://localhost:8790/` para simular um segundo aparelho. Detalhes em [docs/NUVEM.md](docs/NUVEM.md#testar-sem-criar-nada-no-firebase-emulador).
+Ele serve o site em `http://127.0.0.1:8790/` (código de convite `FAMILIA2026`; com `--sem-convite` o cadastro é aberto, como no site publicado). Abra também `http://localhost:8790/` para simular um segundo aparelho. Detalhes em [docs/NUVEM.md](docs/NUVEM.md#testar-sem-criar-nada-no-firebase-emulador).
 
 ### Testes
 

@@ -25,13 +25,13 @@ const empty = (extra = {}) => ({ version: 1, tasks: [], labels: [], settings: de
 const titles = (store) => store.state.tasks.map((t) => t.title).sort();
 
 /** Um aparelho: estado, cliente da nuvem, motor de sincronização e um relógio de "timers" que só anota os agendamentos. */
-function newDevice(fb, initial) {
+function newDevice(fb, initial, config = CONFIG) {
   const storage = memoryStorage();
   const store = createStore(initial ?? empty(), { clock: () => new Date(clock.t) });
-  const cloud = createCloud({ config: CONFIG, fetchImpl: fb.fetch, now, storage });
+  const cloud = createCloud({ config, fetchImpl: fb.fetch, now, storage });
   const scheduled = [];
   const timers = { setTimeout: (fn, ms) => { scheduled.push({ fn, ms }); return scheduled.length; }, clearTimeout: () => {} };
-  const sync = createSync({ store, cloud, config: CONFIG, clock: now, timers });
+  const sync = createSync({ store, cloud, config, clock: now, timers });
   return { store, cloud, sync, scheduled, storage };
 }
 async function signUpDevice(fb, email = EMAIL, initial) {
@@ -535,6 +535,49 @@ test('excluir a conta espera a sincronização em andamento, para não deixar da
   assert.equal((await removing).ok, true);
   assert.equal(fb.data.size, 0);
   assert.equal(fb.users.size, 0);
+});
+
+// ---------- cadastro aberto (exigirConvite: false, regras de docs/regras-banco-aberto.json) ----------
+
+const ABERTO = { ...CONFIG, exigirConvite: false };
+
+test('cadastro aberto: qualquer pessoa cria a conta sem código, e o documento não leva o campo convite', async () => {
+  const fb = createFakeFirebase({ now, convite: null }); // regras sem código
+  const a = newDevice(fb, undefined, ABERTO);
+  assert.equal((await connect({ ...a, mode: 'signUp', email: EMAIL, password: PASS, exigirConvite: false })).ok, true);
+  a.store.addTask({ title: 'Sem código' });
+  assert.equal((await a.sync.syncNow()).ok, true);
+  const uid = a.cloud.session.uid;
+  assert.deepEqual(Object.keys(fb.data.get(`users/${uid}`)).sort(), ['blob', 'sig', 'updatedAt', 'v']);
+  assert.equal(fb.remote(uid).tasks.length, 1);
+
+  const b = newDevice(fb, undefined, ABERTO); // outra pessoa também entra sem código, e as duas continuam isoladas
+  assert.equal((await connect({ ...b, mode: 'signUp', email: 'bia@exemplo.com', password: PASS, exigirConvite: false })).ok, true);
+  await assert.rejects(() => b.cloud.dbGet(`users/${uid}`), { code: 'permission' });
+  assert.equal(b.store.state.tasks.length, 0);
+});
+
+test('cadastro aberto: com as regras antigas (que exigem código) o cadastro é desfeito e a mensagem NÃO fala em código de convite', async () => {
+  const fb = createFakeFirebase({ now, convite: 'FAMILIA' });
+  const d = newDevice(fb, undefined, ABERTO);
+  await assert.rejects(
+    () => connect({ ...d, mode: 'signUp', email: EMAIL, password: PASS, exigirConvite: false }),
+    (e) => e.code === 'permission' && /regras do banco/.test(e.message) && !/convite/i.test(e.message),
+  );
+  assert.equal(fb.users.size, 0, 'a conta recém-criada é desfeita');
+  assert.equal(d.cloud.session, null);
+});
+
+test('mensagem de acesso recusado: só fala em código de convite quando o código é exigido', async () => {
+  for (const exigir of [true, false]) {
+    const fb = createFakeFirebase({ now });
+    const d = newDevice(fb, undefined, { ...CONFIG, exigirConvite: exigir });
+    await d.cloud.signUp(EMAIL, PASS);
+    await assert.rejects(
+      () => d.cloud.dbGet('users/de-outra-pessoa'),
+      (e) => e.code === 'permission' && /regras do banco/.test(e.message) && /convite/i.test(e.message) === exigir,
+    );
+  }
 });
 
 // ---------- login obrigatório (exigirLogin) ----------

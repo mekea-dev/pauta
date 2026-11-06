@@ -176,7 +176,9 @@ export function createCloud({ config, fetchImpl, now = () => Date.now(), storage
         await refresh();
         return db(method, path, body, true);
       }
-      throw new CloudError('permission', 'O servidor recusou o acesso (código de convite incorreto ou regras do banco).', res.status);
+      throw new CloudError('permission', config.exigirConvite
+        ? 'O servidor recusou o acesso (código de convite incorreto ou regras do banco).'
+        : 'O servidor recusou o acesso (confira as regras do banco).', res.status);
     }
     if (res.status === 404) throw new CloudError('config', 'Não encontrei o banco de dados. Confira databaseUrl em js/cloud/config.js.', 404);
     if (!res.ok) throw new CloudError('server', `Erro do servidor (${res.status}).`, res.status);

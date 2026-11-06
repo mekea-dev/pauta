@@ -114,7 +114,7 @@ export function createAccountUI(app) {
       show('');
       setBusy(true);
       try {
-        const r = await connect({ cloud, sync, store, mode: m, email: e, password: p, convite: invite?.value.trim() ?? '', askAdopt });
+        const r = await connect({ cloud, sync, store, mode: m, email: e, password: p, convite: invite?.value.trim() ?? '', exigirConvite: Boolean(config.exigirConvite), askAdopt });
         if (r.cancelled) return setBusy(false);
         onDone(signUp, r);
       } catch (err) {
@@ -203,7 +203,7 @@ export function createAccountUI(app) {
       h('div', { class: 'gate-brand' }, logo(34), h('span', {}, 'Pauta')),
       h('h1', { id: 'gate-title', class: 'gate-title' }, signUp ? 'Criar conta' : 'Entrar'),
       h('p', { class: 'gate-text' }, signUp
-        ? 'Crie sua conta com o código de convite. Suas tarefas ficam sincronizadas no celular, no notebook e no PC.'
+        ? `Crie sua conta${config.exigirConvite ? ' com o código de convite' : ''}. Suas tarefas ficam sincronizadas no celular, no notebook e no PC.`
         : 'Entre com a sua conta para ver e criar suas tarefas.'),
       h('p', { class: 'auth-msg info gate-notice', role: 'status', hidden: !gateNotice }, gateNotice),
       form,

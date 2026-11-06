@@ -104,14 +104,30 @@ test('sem emojis nem símbolos pictográficos (setas, marcas, bolinhas): use os 
   assert.deepEqual(achados, []);
 });
 
-test('regras do banco: o guia (docs/NUVEM.md) traz exatamente as regras de docs/regras-banco.json', async () => {
-  const arquivo = JSON.parse(await readText('docs/regras-banco.json'));
-  const guia = await readText('docs/NUVEM.md');
-  const blocos = [...guia.matchAll(/```json\r?\n([\s\S]*?)```/g)].map((m) => JSON.parse(m[1]));
-  assert.ok(blocos.some((b) => JSON.stringify(b) === JSON.stringify(arquivo)), 'o guia não traz as regras do arquivo');
+for (const [arquivo, rotulo] of [['regras-banco.json', 'com código de convite'], ['regras-banco-aberto.json', 'cadastro aberto']]) {
+  test(`regras do banco (${rotulo}): o guia (docs/NUVEM.md) traz exatamente as regras de docs/${arquivo}`, async () => {
+    const regras = JSON.parse(await readText(`docs/${arquivo}`));
+    const guia = await readText('docs/NUVEM.md');
+    const blocos = [...guia.matchAll(/```json\r?\n([\s\S]*?)```/g)].map((m) => JSON.parse(m[1]));
+    assert.ok(blocos.some((b) => JSON.stringify(b) === JSON.stringify(regras)), 'o guia não traz as regras do arquivo');
+  });
+}
+
+test('regras do banco (cadastro aberto): só o dono acessa o próprio nó, criar não exige código e os campos são fechados', async () => {
+  const { rules } = JSON.parse(await readText('docs/regras-banco-aberto.json'));
+  const uid = rules.users.$uid;
+  assert.equal(rules['.read'], false);
+  assert.equal(rules['.write'], false);
+  assert.equal(uid['.read'], 'auth != null && auth.uid === $uid');
+  assert.equal(uid['.write'], 'auth != null && auth.uid === $uid', 'só o dono grava, e sem exigir código');
+  assert.match(uid['.validate'], /hasChildren\(\['v', 'updatedAt', 'sig', 'blob'\]\)/);
+  for (const campo of ['v', 'updatedAt', 'sig', 'blob']) assert.ok(uid[campo]?.['.validate'], `sem validação para ${campo}`);
+  assert.equal(uid.convite, undefined, 'no cadastro aberto o app não manda o campo convite');
+  assert.equal(uid.$outro['.validate'], false);
+  assert.match(uid.blob['.validate'], /<= 1000000/);
 });
 
-test('regras do banco: só o dono acessa o próprio nó, criar exige o código e os campos são fechados', async () => {
+test('regras do banco (com código de convite): só o dono acessa o próprio nó, criar exige o código e os campos são fechados', async () => {
   const { rules } = JSON.parse(await readText('docs/regras-banco.json'));
   const uid = rules.users.$uid;
   assert.equal(rules['.read'], false);

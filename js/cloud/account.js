@@ -21,7 +21,7 @@ export function needsLogin(config, session) {
  *  - conta nova: as tarefas do aparelho sobem para ela.
  * @returns {{ok: boolean, cancelled?: boolean, sync?: object}}
  */
-export async function connect({ cloud, sync, store, mode, email, password, convite = '', askAdopt }) {
+export async function connect({ cloud, sync, store, mode, email, password, convite = '', exigirConvite = true, askAdopt }) {
   const session = mode === 'signUp' ? await cloud.signUp(email, password, convite) : await cloud.signIn(email, password);
   try {
     const st = store.state;
@@ -43,11 +43,14 @@ export async function connect({ cloud, sync, store, mode, email, password, convi
     store.setOwner(session.uid);
     const result = await sync.syncNow();
     if (!result.ok && mode === 'signUp' && result.code === 'permission') {
-      // o código de convite não passou nas regras do banco: desfaz a conta recém-criada para a pessoa tentar de novo
+      // o banco recusou guardar os dados da conta nova (código de convite errado ou regras que não combinam com o app):
+      // desfaz a conta recém-criada para a pessoa poder tentar de novo
       sync.stop();
       await cloud.deleteAccount().catch(() => {});
       store.setOwner(null);
-      throw new CloudError('invite', 'Código de convite incorreto. Peça o código a quem convidou você.');
+      throw exigirConvite
+        ? new CloudError('invite', 'Código de convite incorreto. Peça o código a quem convidou você.')
+        : new CloudError('permission', 'O servidor recusou guardar os seus dados (regras do banco). Avise quem administra o serviço.');
     }
     return { ok: result.ok, sync: result };
   } catch (e) {

@@ -1,7 +1,9 @@
 // "Firebase de mentira" para os testes: imita, em memória, o que o app usa (login por e-mail e senha, tokens que vencem,
-// banco com regras: só o dono lê/grava o próprio nó e criar o nó exige o código de convite).
+// banco com regras: só o dono lê/grava o próprio nó e, com código de convite, criar o nó exige o código).
 // Segue a documentação oficial da API REST. Fornece um `fetch` para injetar em createCloud().
 // As regras do banco aqui são as mesmas de docs/regras-banco.json (um teste confere que o app só grava o que elas aceitam).
+// `convite: null` imita as regras de cadastro aberto (docs/regras-banco-aberto.json): criar o nó não exige código
+// e o campo `convite` nem existe no documento.
 // `recent`: por quanto tempo um login conta como "recente"; o Firebase só exclui a conta nesse prazo (o prazo exato
 // não é documentado; 5 minutos é o que se relata, e o app confirma a senha antes de excluir, então não depende disso).
 export function createFakeFirebase({ ttl = 3600, convite = 'FAMILIA', now = () => Date.now(), key = 'KEY', recent = 5 * 60 * 1000 } = {}) {
@@ -12,6 +14,7 @@ export function createFakeFirebase({ ttl = 3600, convite = 'FAMILIA', now = () =
   const sent = []; // e-mails de redefinição "enviados"
   const calls = [];
   const state = { online: true, expireNext: false, putGate: null };
+  const aberto = convite === null; // cadastro aberto: sem código de convite
   let n = 0;
 
   const reply = (status, body) => new Response(body === undefined ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -26,10 +29,11 @@ export function createFakeFirebase({ ttl = 3600, convite = 'FAMILIA', now = () =
     return { idToken, refreshToken, expiresIn: String(ttl), localId: uid, email };
   }
 
-  // espelho do ".validate" de docs/regras-banco.json
+  // espelho do ".validate" de docs/regras-banco.json (ou de docs/regras-banco-aberto.json, que não tem o campo `convite`)
   function validDoc(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-    if (Object.keys(value).some((k) => !['v', 'updatedAt', 'sig', 'blob', 'convite'].includes(k))) return false;
+    const campos = aberto ? ['v', 'updatedAt', 'sig', 'blob'] : ['v', 'updatedAt', 'sig', 'blob', 'convite'];
+    if (Object.keys(value).some((k) => !campos.includes(k))) return false;
     return typeof value.v === 'number'
       && typeof value.updatedAt === 'string' && value.updatedAt.length <= 40
       && typeof value.sig === 'string' && value.sig.length <= 100
@@ -98,8 +102,8 @@ export function createFakeFirebase({ ttl = 3600, convite = 'FAMILIA', now = () =
     if (method === 'PUT') {
       const value = JSON.parse(init.body);
       if (state.putGate) await state.putGate;
-      // criar o nó exige o código (e nunca "vazio == vazio": o código tem que ser um texto igual ao do servidor)
-      if (!data.has(path) && !(typeof value?.convite === 'string' && value.convite === convite)) return reply(401, { error: 'Permission denied' });
+      // com código de convite, criar o nó exige o código (e nunca "vazio == vazio": o código tem que ser um texto igual ao do servidor)
+      if (!aberto && !data.has(path) && !(typeof value?.convite === 'string' && value.convite === convite)) return reply(401, { error: 'Permission denied' });
       if (!validDoc(value)) return reply(401, { error: 'Permission denied' }); // o ".validate" recusa a gravação (o banco responde igual)
       data.set(path, value);
       return reply(200, value);

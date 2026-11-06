@@ -4,7 +4,7 @@ Por padrão, o Pauta guarda as tarefas só no navegador de cada aparelho. Seguin
 
 Usa o **Firebase** (do Google) no plano gratuito (Spark): sem cartão de crédito, sem servidor seu e sem instalar nada. Leva uns 15 minutos. Enquanto você não preencher `js/cloud/config.js`, nenhuma tela de conta aparece e o app continua funcionando só no aparelho, como antes.
 
-Resumo: criar o projeto, ligar o login por e-mail e senha, criar o banco, colar as regras de segurança, definir o código de convite e copiar duas informações para o app.
+Resumo: criar o projeto, ligar o login por e-mail e senha, criar o banco, colar as regras de segurança (cadastro aberto ou com código de convite) e copiar duas informações para o app.
 
 ## Antes de começar
 
@@ -23,7 +23,7 @@ O GitHub Pages gratuito exige repositório público, e isso **não** vaza senhas
 |---|---|
 | O código do app | E-mails e senhas (Authentication) |
 | A chave de API e o endereço do banco, em `js/cloud/config.js` | As tarefas de cada pessoa (Realtime Database, com regras) |
-| Nenhuma senha, token ou tarefa de ninguém | O código de convite |
+| Nenhuma senha, token ou tarefa de ninguém | O código de convite (se você usar a opção B do passo 4) |
 
 - A chave de API do Firebase para web **não é segredo**: ela só identifica o projeto, e o navegador de qualquer visitante a recebe (mesmo com repositório privado). Quem protege os dados são o login e as regras do banco. A documentação do Firebase diz que essas chaves podem ficar no código e em arquivos de configuração. O [passo 8](#passo-8---restringir-a-chave-de-api-recomendado) restringe a chave ao seu site, como camada extra.
 - Pode chegar um e-mail automático do Google ou do GitHub falando de uma "chave de API pública". Para a chave web do Firebase isso é esperado: confirme que é a chave "Browser key" do projeto e que ela está restrita (passo 8).
@@ -57,8 +57,41 @@ No plano gratuito do GitHub, deixar o repositório privado **tira o site do ar**
 As regras são o que protege os dados: o app roda no navegador de cada pessoa, então quem decide quem pode ler e gravar o quê é o banco.
 
 1. Ainda em **Realtime Database**, abra a aba **Regras** (Rules).
-2. Apague o conteúdo e cole o texto abaixo (é o mesmo arquivo [`regras-banco.json`](regras-banco.json)).
+2. Escolha **uma** das duas opções abaixo: apague o conteúdo da aba e cole o texto dela.
 3. Clique em **Publicar** (Publish).
+
+As regras e a opção `exigirConvite` do [passo 6](#passo-6---copiar-duas-informações-para-o-app) **têm que combinar**: opção A com `exigirConvite: false`, opção B com `exigirConvite: true`.
+
+### Opção A: cadastro aberto (quem tiver o endereço do site cria a conta)
+
+A mais simples: não existe código. É o mesmo arquivo [`regras-banco-aberto.json`](regras-banco-aberto.json). Pule o passo 5.
+
+```json
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['v', 'updatedAt', 'sig', 'blob'])",
+        "v": { ".validate": "newData.isNumber()" },
+        "updatedAt": { ".validate": "newData.isString() && newData.val().length <= 40" },
+        "sig": { ".validate": "newData.isString() && newData.val().length <= 100" },
+        "blob": { ".validate": "newData.isString() && newData.val().length <= 1000000" },
+        "$outro": { ".validate": false }
+      }
+    }
+  }
+}
+```
+
+Cuidado com o cadastro aberto: qualquer pessoa com o endereço do site pode criar conta e guardar até cerca de 1 MB de tarefas no seu projeto. No plano gratuito (Spark) não há cobrança; o teto é o limite do plano (1 GB de dados), e quem abusar se resolve apagando os usuários no console. Se isso virar problema, passe para a opção B.
+
+### Opção B: só entra quem tiver um código de convite
+
+Bom para um grupo fechado de amigos e família. É o mesmo arquivo [`regras-banco.json`](regras-banco.json). Depois de publicar, faça o passo 5.
 
 ```json
 {
@@ -82,14 +115,17 @@ As regras são o que protege os dados: o app roda no navegador de cada pessoa, e
 }
 ```
 
-O que elas fazem:
+O que as regras fazem, nas duas opções:
 
 - Cada pessoa lê e grava **só o próprio documento** (`users/<id da pessoa>`). Ninguém lista nem lê o das outras.
-- Para **criar** o documento é preciso mandar o código de convite certo (o item `convite`, do próximo passo). Quem não tem o código consegue, no máximo, criar um usuário no Authentication, mas não consegue guardar nada.
 - Só são aceitos os campos que o app usa, com tamanho limitado (cerca de 1 MB por pessoa).
-- Todo o resto do banco, inclusive o próprio `convite`, não pode ser lido pelo app: só por você, no painel.
+- Todo o resto do banco não pode ser lido pelo app: só por você, no painel.
 
-## Passo 5 - Definir o código de convite
+Só na opção B: para **criar** o documento é preciso mandar o código de convite certo (o item `convite`, do próximo passo). Quem não tem o código consegue, no máximo, criar um usuário no Authentication, mas não consegue guardar nada. O próprio `convite` também não pode ser lido pelo app.
+
+## Passo 5 - Definir o código de convite (só na opção B)
+
+Se você escolheu a opção A (cadastro aberto), pule este passo.
 
 1. Na aba **Dados** do Realtime Database, passe o mouse sobre a primeira linha (o endereço do banco) e clique no **+**.
 2. Em **Nome**, digite `convite`. Em **Valor**, digite o código que você escolheu. Clique em **Adicionar**.
@@ -110,7 +146,7 @@ Dicas:
      apiKey: 'AIza...cole-aqui-a-sua-chave',
      databaseUrl: 'https://pauta-familia-default-rtdb.firebaseio.com',
      exigirLogin: true,
-     exigirConvite: true,
+     exigirConvite: false, // false com a opção A do passo 4; true com a opção B
      // não mexa nas duas linhas seguintes
      ...
    ```
@@ -120,15 +156,15 @@ Dicas:
    - `exigirLogin: true` (o padrão): o app **só abre para quem entrou numa conta**. A tela de entrada vem antes de tudo e não dá para pular; as tarefas só aparecem depois do login. Quem já entrou continua usando normalmente, inclusive sem internet.
    - `exigirLogin: false`: a conta é **opcional**. Quem não entra usa o app só naquele aparelho, e o menu lateral mostra **Entrar ou criar conta**.
 
-   Isso é uma regra do próprio app, não uma proteção contra quem baixar o código (essa pessoa pode desligá-la no computador dela). O que protege os dados na nuvem é o login, as regras do banco e o código de convite.
+   Isso é uma regra do próprio app, não uma proteção contra quem baixar o código (essa pessoa pode desligá-la no computador dela). O que protege os dados na nuvem é o login e as regras do banco (e, na opção B, o código de convite).
 
 ## Passo 7 - Testar no seu computador
 
 1. Abra o site localmente (veja "Desenvolvimento" no [README](../README.md): `servir.ps1` e `http://localhost:8789/`).
-2. Com `exigirLogin: true`, o app abre direto na tela de entrada (com `false`, o menu lateral mostra **Entrar ou criar conta**). Toque em **Criar conta** e crie uma conta com e-mail, senha (pelo menos 8 caracteres) e o código de convite.
-3. Adicione uma tarefa. Em instantes, no Firebase (Realtime Database > Dados), aparece `users/<id>` com os campos `blob`, `convite`, `sig`, `updatedAt` e `v`.
+2. Com `exigirLogin: true`, o app abre direto na tela de entrada (com `false`, o menu lateral mostra **Entrar ou criar conta**). Toque em **Criar conta** e crie uma conta com e-mail e senha (pelo menos 8 caracteres) e, na opção B, o código de convite.
+3. Adicione uma tarefa. Em instantes, no Firebase (Realtime Database > Dados), aparece `users/<id>` com os campos `blob`, `sig`, `updatedAt` e `v` (e `convite`, na opção B).
 4. Abra o site em outro navegador (ou em uma janela anônima) e entre com o mesmo e-mail e senha: a tarefa aparece.
-5. Teste um código de convite errado ao criar outra conta: o app deve recusar e **não** deixar a conta criada.
+5. Só na opção B: teste um código de convite errado ao criar outra conta; o app deve recusar e **não** deixar a conta criada.
 6. Teste **Esqueci minha senha**: o e-mail chega em português, com remetente `noreply@SEU-PROJETO.firebaseapp.com` (olhe também o spam).
 
 ## Passo 8 - Restringir a chave de API (recomendado)
@@ -145,13 +181,13 @@ Se depois disso o app disser "A chave de API do Firebase não é aceita para est
 
 ## Passo 9 - Publicar
 
-Publique como no [README](../README.md#publicar-no-github-pages). Para cada pessoa que você quiser convidar, mande o endereço do site e o código de convite. Ela abre o site e, na tela de entrada, toca em **Criar conta** (com `exigirLogin: false`, é no menu lateral, em **Entrar ou criar conta**).
+Publique como no [README](../README.md#publicar-no-github-pages). Para cada pessoa que você quiser convidar, mande o endereço do site (e o código de convite, na opção B). Ela abre o site e, na tela de entrada, toca em **Criar conta** (com `exigirLogin: false`, é no menu lateral, em **Entrar ou criar conta**).
 
 ## Dia a dia
 
-- **Convidar alguém**: envie o endereço do site e o código.
+- **Convidar alguém**: envie o endereço do site (e o código, na opção B).
 - **Remover alguém**: no Firebase, apague o usuário em Authentication > Usuários **e** o item dele em Realtime Database > Dados > `users`.
-- **Trocar o código ou fechar os cadastros**: passo 5.
+- **Trocar o código ou fechar os cadastros** (opção B): passo 5. Na opção A, para fechar os cadastros passe para a opção B (regras do passo 4 e `exigirConvite: true`) e não crie o item `convite`: ninguém novo consegue criar conta, e quem já tem conta continua entrando.
 
 ## Como a sincronização funciona
 
@@ -173,8 +209,9 @@ Publique como no [README](../README.md#publicar-no-github-pages). Para cada pess
 | "O login por e-mail e senha não está ativado no Firebase" | Passo 2. |
 | "A chave de API do Firebase não é aceita para este endereço" | Confira `apiKey` em `js/cloud/config.js` e a lista de sites do passo 8. |
 | "Não encontrei o banco de dados" | `databaseUrl` errado. Copie de novo na aba Dados (o final muda conforme o local do banco). |
-| "O servidor recusou o acesso (código de convite incorreto ou regras do banco)" | Confira o item `convite` na raiz do banco (maiúsculas e minúsculas contam) e se as regras do passo 4 foram publicadas. |
-| "Código de convite incorreto" ao criar conta | O código digitado não confere com o item `convite`. |
+| "O servidor recusou o acesso (código de convite incorreto ou regras do banco)" (com `exigirConvite: true`) | Confira o item `convite` na raiz do banco (maiúsculas e minúsculas contam) e se as regras da opção B foram publicadas. |
+| "O servidor recusou o acesso (confira as regras do banco)" ou "O servidor recusou guardar os seus dados (regras do banco)" (com `exigirConvite: false`) | As regras publicadas não são as da opção A. Cole de novo as regras do passo 4 que combinam com `exigirConvite` e publique. |
+| "Código de convite incorreto" ao criar conta | O código digitado não confere com o item `convite` (opção B). |
 | "Sem conexão com a internet" com a internet funcionando | Bloqueador de anúncios, firewall ou rede de empresa bloqueando `googleapis.com` ou `firebaseio.com`. |
 | Não aparece a tela de entrada nem **Entrar ou criar conta** | `apiKey` ou `databaseUrl` vazios, ou o navegador está com a versão antiga: recarregue com `Ctrl` + `F5`. |
 | O app abre sem pedir login | `exigirLogin` está `false` em `js/cloud/config.js`, ou a pessoa já entrou neste aparelho. |
@@ -195,6 +232,6 @@ Para experimentar o login e a sincronização no seu computador, sem conta no Fi
 python scripts/emulador-nuvem.py
 ```
 
-Abra `http://127.0.0.1:8790/` (aparelho 1) e `http://localhost:8790/` (aparelho 2): endereços diferentes têm armazenamento separado no navegador, então funcionam como dois aparelhos. O código de convite do emulador é `FAMILIA2026`. Tudo fica na memória e some ao fechar. Opções: `--porta`, `--convite`, `--ttl` (validade do token, em segundos), `--recente` (por quanto tempo um login conta como recente para excluir a conta) e `--login-opcional` (o emulador exige login, como o site publicado; com essa opção a conta é opcional).
+Abra `http://127.0.0.1:8790/` (aparelho 1) e `http://localhost:8790/` (aparelho 2): endereços diferentes têm armazenamento separado no navegador, então funcionam como dois aparelhos. O código de convite do emulador é `FAMILIA2026`. Tudo fica na memória e some ao fechar. Opções: `--porta`, `--convite`, `--sem-convite` (cadastro aberto, sem código), `--ttl` (validade do token, em segundos), `--recente` (por quanto tempo um login conta como recente para excluir a conta) e `--login-opcional` (o emulador exige login, como o site publicado; com essa opção a conta é opcional).
 
 O emulador e os testes automáticos seguem a documentação do Firebase, mas **não são o Firebase de verdade**: faça o passo 7 com o seu projeto antes de convidar alguém.

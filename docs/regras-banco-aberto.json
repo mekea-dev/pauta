@@ -1,0 +1,18 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['v', 'updatedAt', 'sig', 'blob'])",
+        "v": { ".validate": "newData.isNumber()" },
+        "updatedAt": { ".validate": "newData.isString() && newData.val().length <= 40" },
+        "sig": { ".validate": "newData.isString() && newData.val().length <= 100" },
+        "blob": { ".validate": "newData.isString() && newData.val().length <= 1000000" },
+        "$outro": { ".validate": false }
+      }
+    }
+  }
+}

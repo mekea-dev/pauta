@@ -13,9 +13,10 @@ export const CLOUD = {
   // false: a conta é opcional (sem conta, as tarefas ficam só neste aparelho). Só vale com apiKey e databaseUrl preenchidos.
   exigirLogin: true,
 
-  // true: quem cria conta precisa digitar um código de convite (você define o código no banco, no item `convite`).
-  // Recomendado para um grupo fechado de amigos e família.
-  exigirConvite: true,
+  // false: quem tiver o endereço do site cria a conta, sem código. Use junto com as regras de docs/regras-banco-aberto.json.
+  // true: quem cria conta precisa digitar um código de convite (você define o código no banco, no item `convite`). Bom para um
+  //       grupo fechado. Use junto com as regras de docs/regras-banco.json. As regras do banco e esta opção têm que combinar.
+  exigirConvite: false,
 
   // Endereços da API do Firebase. Não mude (só o emulador de testes muda estes valores).
   identityUrl: 'https://identitytoolkit.googleapis.com/v1',
