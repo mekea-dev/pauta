@@ -4,10 +4,10 @@
 export const CLOUD = {
   // "Chave de API da Web" do seu projeto Firebase (Configurações do projeto > Geral > Seus apps).
   // Não é segredo: quem protege os dados são as regras do banco (veja docs/NUVEM.md).
-  apiKey: '',
+  apiKey: 'AIzaSyBK4mYMEKgWXVhojyQSoXfNC7-VBF3WoDg',
 
   // Endereço do Realtime Database, ex.: https://meu-projeto-default-rtdb.firebaseio.com
-  databaseUrl: '',
+  databaseUrl: 'https://pauta-familia-default-rtdb.firebaseio.com',
 
   // true: quem cria conta precisa digitar um código de convite (você define o código no banco, no item `convite`).
   // Recomendado para um grupo fechado de amigos e família.
