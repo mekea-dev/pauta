@@ -20,7 +20,7 @@ Escreva a tarefa do jeito que você falaria (`Pagar boleto amanhã 10h !alta #co
 - **Anotações** dentro da tarefa (links viram atalhos clicáveis).
 - **Repetição**: todo dia, dias úteis, dias da semana, a cada N semanas, todo mês, todo ano. Ao concluir, a próxima já é criada; as repetições futuras aparecem esmaecidas na agenda e no calendário.
 - **Lembretes** ("despertador"): numa tarefa com data e hora, escolha ser avisado 5 minutos, 1 hora, 1 dia... antes (ou escreva `me avise 15 minutos antes`). Avisa com o app aberto sem configurar nada; com o app fechado (celular), precisa de um pequeno serviço gratuito na Cloudflare: [docs/LEMBRETES.md](docs/LEMBRETES.md).
-- **Voz**: o botão do microfone ao lado de Adicionar entende uma frase como "crie uma tarefa pagar boleto para dia 10 às 16 horas" e cria a tarefa (com Desfazer). No app da Tela de Início do iPhone o iOS não permite o microfone do navegador; lá vale o microfone do teclado.
+- **Voz**: o botão do microfone ao lado de Adicionar entende uma frase como "crie uma tarefa pagar boleto para dia 10 às 16 horas" e cria a tarefa (com Desfazer). No app da Tela de Início do iPhone o iOS, até onde se sabe, não permite o microfone do navegador: o Pauta tenta e, se o iPhone recusar, avisa e passa para o microfone do teclado.
 - **Calendário** do mês, **Próximos dias**, **Pendentes**, **Sem data**, **Concluídas** e **busca** (título, anotações, etiquetas e checklist).
 - **Desfazer** (aviso na tela e `Ctrl+Z`), atalhos de teclado e **tema claro, escuro ou automático** (botão no topo da tela).
 - **Conta** (opcional, ou obrigatória se você preferir): login por e-mail e senha para ver as mesmas tarefas em todos os aparelhos, com sincronização automática (Firebase, plano gratuito). Passo a passo em [docs/NUVEM.md](docs/NUVEM.md).
@@ -130,6 +130,8 @@ Para atualizar o app, é só enviar a mudança de novo; o GitHub Pages republica
 
 ## Desenvolvimento
 
+Quer continuar o desenvolvimento em outro computador (ou com o Claude Code)? Comece por [docs/DESENVOLVIMENTO.md](docs/DESENVOLVIMENTO.md): estado atual, mapa do código, o que foi verificado e o que não foi, pendências e decisões. O histórico de versões está em [CHANGELOG.md](CHANGELOG.md) e as instruções para o Claude Code, em [CLAUDE.md](CLAUDE.md).
+
 Para ver o site localmente (módulos JavaScript não abrem com duplo clique no arquivo; é preciso um servidor local):
 
 ```bash
@@ -168,7 +170,9 @@ worker/lembretes.js   serviço de lembretes (Cloudflare Worker): não faz parte 
 manifest.webmanifest  instalação como app
 icons/                ícones do app (scripts/gerar-icones.ps1 recria os PNGs)
 scripts/              gerar-icones.ps1 e emulador-nuvem.py
-docs/                 guias (NUVEM.md e LEMBRETES.md), regras do banco e imagens deste README
+docs/                 guias (NUVEM.md, LEMBRETES.md e DESENVOLVIMENTO.md), regras do banco e imagens deste README
+CHANGELOG.md          histórico de versões
+CLAUDE.md             instruções para o Claude Code (regras do projeto)
 tests/                testes (Node e navegador)
 ```
 
@@ -183,7 +187,7 @@ tests/                testes (Node e navegador)
 
 - **A sincronização exige um projeto Firebase seu** (grátis; guia em [docs/NUVEM.md](docs/NUVEM.md)). Sem isso, só há backup e importação manual. Cada conta tem as próprias tarefas: **não há listas compartilhadas entre pessoas diferentes**.
 - Se a **mesma** tarefa for editada em dois aparelhos antes de sincronizar, vale a edição mais recente. Cada pessoa pode guardar cerca de 900 KB na nuvem (mais de 1.600 tarefas completas).
-- **Lembretes com o app fechado dependem de um serviço seu na Cloudflare** (grátis; guia em [docs/LEMBRETES.md](docs/LEMBRETES.md)); sem ele, o app só avisa enquanto está aberto. O aviso tem a precisão de 1 minuto, e uma tarefa concluída em outro aparelho ainda pode avisar neste até o app abrir e sincronizar. No iPhone, as notificações só existem com o app instalado na Tela de Início, e o microfone do navegador não funciona lá (use o do teclado).
+- **Lembretes com o app fechado dependem de um serviço seu na Cloudflare** (grátis; guia em [docs/LEMBRETES.md](docs/LEMBRETES.md)); sem ele, o app só avisa enquanto está aberto. O aviso tem a precisão de 1 minuto, e uma tarefa concluída em outro aparelho ainda pode avisar neste até o app abrir e sincronizar. No iPhone, as notificações só existem com o app instalado na Tela de Início, e o microfone do navegador provavelmente não funciona lá (o app avisa e leva ao microfone do teclado).
 - Tarefas que repetem mostram só a próxima ocorrência como tarefa de verdade; as seguintes aparecem esmaecidas e viram tarefa quando você conclui a atual.
 - O login e a nuvem foram testados com um Firebase de mentira (emulador e testes automáticos); faça o passo "Testar no seu computador" do guia com o seu projeto antes de convidar pessoas.
 

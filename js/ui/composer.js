@@ -5,7 +5,7 @@ import { priorityLabel } from '../model.js';
 import { parseQuickAdd } from '../parser.js';
 import { describe } from '../recurrence.js';
 import { remindLabel } from '../reminders.js';
-import { createSpeech, describeSpeechError } from '../speech.js';
+import { createSpeech, createSpeechMemory, describeSpeechError } from '../speech.js';
 import { fold } from '../text.js';
 import { capitalizeTitle, normalizeSpoken } from '../voice.js';
 import { clip, h } from './dom.js';
@@ -20,9 +20,13 @@ const EXAMPLES = [
   'Revisar relatório hoje 16h !urgente',
 ];
 
+const KEYBOARD_HELP = 'Toque no microfone do teclado e fale, por exemplo: “crie uma tarefa pagar boleto para dia 10 às 16 horas”. Depois toque em Adicionar.';
+const BLOCKED_NOTE = 'O microfone do app não está disponível neste aparelho (no iPhone, o modo app costuma bloquear). Use o microfone do teclado: toque nele, fale e depois toque em Adicionar.';
+
 export function createComposer(app) {
   const { store } = app;
-  const speech = createSpeech();
+  // se o navegador recusar o microfone (iPhone, modo app), o app lembra disso neste aparelho e deixa de insistir por alguns dias
+  const speech = createSpeech(globalThis, { memory: createSpeechMemory(app.storage) });
   let ignore = {};
   let ctx = { date: null, labelId: null, priority: 0, hidden: false };
   // o texto do campo veio da fala (ou vai vir do ditado do teclado): lê como pedido falado ("crie uma tarefa... com prazo para dia 10")
@@ -68,14 +72,15 @@ export function createComposer(app) {
   const showHint = () => { hint.hidden = !(document.activeElement === input && !input.value); };
 
   // ---------- recado sob o campo (ouvindo, erro do microfone, como ditar) ----------
-  function showNote(text, kind = 'info') {
-    note.textContent = text;
+  function showNote(text, kind = 'info', action = null) {
+    note.replaceChildren(text);
+    if (action) note.append(' ', h('button', { class: 'link-btn', type: 'button', onclick: action.onClick }, action.label));
     note.dataset.kind = kind;
     note.hidden = false;
   }
   function clearNote() {
     note.hidden = true;
-    note.textContent = '';
+    note.replaceChildren();
     delete note.dataset.kind;
   }
 
@@ -98,7 +103,9 @@ export function createComposer(app) {
     }
     clearNote();
     if (speech.usable && startListening()) return;
-    startKeyboardDictation();
+    // o navegador já recusou o microfone neste aparelho: não insiste, mas a pessoa pode pedir para tentar de novo
+    if (speech.blocked) startKeyboardDictation(BLOCKED_NOTE, { retry: true });
+    else startKeyboardDictation();
   }
 
   function startListening() {
@@ -143,9 +150,10 @@ export function createComposer(app) {
   }
 
   /** Sem reconhecimento de voz no app (iPhone na Tela de Início, Firefox): leva ao campo, onde o teclado tem o microfone do ditado. */
-  function startKeyboardDictation(reason) {
+  function startKeyboardDictation(reason, { retry = false } = {}) {
     spoken = true;
-    showNote(reason ?? 'Toque no microfone do teclado e fale, por exemplo: “crie uma tarefa pagar boleto para dia 10 às 16 horas”. Depois toque em Adicionar.', reason ? 'warn' : 'info');
+    const again = retry ? { label: 'Tentar o microfone do app de novo', onClick: () => { speech.reset(); onMic(); } } : null;
+    showNote(reason ?? KEYBOARD_HELP, reason && !retry ? 'warn' : 'info', again);
     input.focus();
     update();
   }

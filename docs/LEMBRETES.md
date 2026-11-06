@@ -27,7 +27,7 @@ Toque no microfone e fale a tarefa do seu jeito, por exemplo:
 
 O app tira o "pedido", entende o título (**Pagar boleto**), o dia, a hora e o lembrete, cria a tarefa e mostra o que entendeu, com **Desfazer**. Também entende `reunião sexta às quatro e meia da tarde com prioridade alta` ou `lembre-me de ligar para o João amanhã às nove`.
 
-- Funciona no Chrome e no Edge (computador e Android) e no Safari (em aba comum). **Não funciona no Firefox** nem no **app da Tela de Início do iPhone**: o iOS não deixa o app instalado usar o reconhecimento de voz do navegador. Nesses casos o botão do microfone leva ao campo de texto e você usa o **microfone do teclado** (o ditado do iPhone): fale, confira a pré-visualização e toque em **Adicionar**. O app entende a frase falada do mesmo jeito.
+- Funciona no Chrome e no Edge (computador e Android) e no Safari (em aba comum). **Não funciona no Firefox** e, até onde se sabe, **nem no app da Tela de Início do iPhone** (a Apple diz que o reconhecimento de voz do navegador não está disponível nesse modo). Mesmo assim o Pauta **tenta**: se o seu iPhone liberar, o microfone do app funciona; se recusar, o app avisa, passa para o **microfone do teclado** (o ditado do iPhone) e não insiste por 7 dias, a menos que você toque em **Tentar o microfone do app de novo**. Com o microfone do teclado, fale, confira a pré-visualização e toque em **Adicionar**: o app entende a frase falada do mesmo jeito.
 - Se o app não entender o título, ele deixa o texto no campo para você completar.
 - O reconhecimento de voz é do próprio navegador (o Chrome envia o áudio para o Google). O Pauta não grava nem guarda o áudio.
 
@@ -74,4 +74,4 @@ Para desinstalar: apague o Worker e o banco D1 no painel da Cloudflare e deixe `
 - **Ligou, mas diz "só com o app aberto"**: o serviço não respondeu. Confira o endereço em `js/push-config.js`, o `ALLOWED_ORIGINS` do Worker e se o passo 7 mostra a chave.
 - **O aviso com o app fechado não chega, mesmo ligado**: no painel da Cloudflare, abra o Worker, **Observability**, **Logs**, e procure por `push recusado`. A linha diz qual serviço (Apple, Google...) recusou e com que código (por exemplo, 400, 401 ou 403 indicam que o serviço não aceitou a assinatura; 429 e 5xx são falhas passageiras). Cada aviso é tentado até 6 vezes.
 - **Chega um aviso "Você tem um lembrete"** em vez do título: a lista guardada no aparelho estava desatualizada (por exemplo, o aparelho ficou dias sem abrir o app). Abra o Pauta para atualizar.
-- **No iPhone, o botão do microfone só leva ao campo de texto**: é o esperado no app da Tela de Início (veja Voz, acima). Use o microfone do teclado.
+- **No iPhone, o botão do microfone avisa que não está disponível e leva ao campo de texto**: é o esperado no app da Tela de Início (veja Voz, acima). Use o microfone do teclado. Para o app tentar de novo, toque em "Tentar o microfone do app de novo".

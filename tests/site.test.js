@@ -95,7 +95,7 @@ test('JavaScript e CSS não usam caminhos absolutos', async () => {
 
 test('sem emojis nem símbolos pictográficos (setas, marcas, bolinhas): use os ícones SVG', async () => {
   const pictografico = /[\u{1F000}-\u{1FAFF}\u{2190}-\u{21FF}\u{2300}-\u{23FF}\u{25A0}-\u{25FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u;
-  const arquivos = new Set(['index.html', 'README.md', 'docs/NUVEM.md', 'docs/LEMBRETES.md', ...(await swAssets()).filter((a) => /\.(js|css)$/.test(a)).map((a) => a.replace(/^\.\//, ''))]);
+  const arquivos = new Set(['index.html', 'README.md', 'CHANGELOG.md', 'CLAUDE.md', 'docs/NUVEM.md', 'docs/LEMBRETES.md', 'docs/DESENVOLVIMENTO.md', ...(await swAssets()).filter((a) => /\.(js|css)$/.test(a)).map((a) => a.replace(/^\.\//, ''))]);
   const achados = [];
   for (const f of arquivos) {
     const m = pictografico.exec(await readText(f));
