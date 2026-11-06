@@ -146,6 +146,7 @@ function restoreFocus(f) {
 }
 
 function paint() {
+  if (app.account.gated) return; // a tela de entrada está na frente: não desenha tarefa nenhuma por trás
   const focus = captureFocus();
   applyTheme();
   document.body.dataset.route = app.ui.search.trim() ? 'search' : app.ui.route.name;
@@ -284,5 +285,6 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
 
 applyTheme();
 app.ui.route = parseRoute(location.hash);
+app.account.start(); // login obrigatório: sem sessão, a tela de entrada vem antes de qualquer tarefa
 paint(); // primeiro desenho na hora, sem esperar o próximo quadro
-if (!isTouch()) setTimeout(() => app.composer.focus(), 0);
+if (!isTouch() && !app.account.gated) setTimeout(() => app.composer.focus(), 0);

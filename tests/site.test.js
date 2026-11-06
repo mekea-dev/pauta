@@ -132,6 +132,17 @@ test('regras do banco: só o dono acessa o próprio nó, criar exige o código e
   assert.ok(max > 0 && max < 1000000, 'MAX_BLOB do app precisa caber no limite das regras');
 });
 
+test('o emulador entrega todas as opções de js/cloud/config.js (senão o app testado nele se comporta diferente do site)', async () => {
+  const config = await readText('js/cloud/config.js');
+  const emulador = await readText('scripts/emulador-nuvem.py');
+  const chaves = [...config.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1]);
+  for (const esperada of ['apiKey', 'databaseUrl', 'exigirLogin', 'exigirConvite', 'identityUrl', 'tokenUrl']) {
+    assert.ok(chaves.includes(esperada), `config.js não tem ${esperada} (leu: ${chaves.join(', ')})`);
+  }
+  const faltando = chaves.filter((k) => !new RegExp(`^ {2}${k}:`, 'm').test(emulador));
+  assert.deepEqual(faltando, [], 'opções que o emulador não entrega');
+});
+
 test('segurança: política de conteúdo no HTML, sem script ou estilo embutido', async () => {
   const html = await readText('index.html');
   assert.ok(/Content-Security-Policy/.test(html));

@@ -9,6 +9,7 @@ Uso:
     python scripts/emulador-nuvem.py                  # http://127.0.0.1:8790/
     python scripts/emulador-nuvem.py --ttl 90         # token vale 90 s (testa a renovacao automatica)
     python scripts/emulador-nuvem.py --recente 20     # login "recente" vale 20 s (testa a exclusao da conta)
+    python scripts/emulador-nuvem.py --login-opcional # o app abre sem exigir conta (o padrao exige, como o site publicado)
 
 Para simular DOIS aparelhos use dois enderecos: http://localhost:8790/ e http://127.0.0.1:8790/
 (enderecos diferentes = armazenamento do navegador separado). Codigo de convite padrao: FAMILIA2026.
@@ -33,6 +34,7 @@ MIME = {
 CONFIG_JS = """export const CLOUD = {
   apiKey: 'emulador',
   databaseUrl: '/__emulador/db',
+  exigirLogin: __EXIGIR_LOGIN__,
   exigirConvite: true,
   identityUrl: '/__emulador/identity/v1',
   tokenUrl: '/__emulador/token/v1',
@@ -58,6 +60,7 @@ class Estado:
 
 
 ESTADO = None
+LOGIN_OPCIONAL = False  # --login-opcional: o app abre sem exigir conta (como com exigirLogin: false)
 LOCK = threading.Lock()
 
 
@@ -218,7 +221,8 @@ class Handler(BaseHTTPRequestHandler):
         caminho = unquote(url.path)
         q = parse_qs(url.query)
         if caminho == '/js/cloud/config.js' and metodo in ('GET', 'HEAD'):
-            return self.enviar(200, CONFIG_JS.encode('utf-8'), MIME['.js'])
+            config = CONFIG_JS.replace('__EXIGIR_LOGIN__', 'false' if LOGIN_OPCIONAL else 'true')
+            return self.enviar(200, config.encode('utf-8'), MIME['.js'])
         if caminho.startswith('/__emulador/identity/v1/accounts:') and metodo == 'POST':
             return self.identidade(caminho.split(':', 1)[1], q)
         if caminho == '/__emulador/token/v1/token' and metodo == 'POST':
@@ -253,13 +257,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global ESTADO
+    global ESTADO, LOGIN_OPCIONAL
     ap = argparse.ArgumentParser(description='Emulador local da nuvem do Pauta.')
     ap.add_argument('--porta', type=int, default=8790)
+    ap.add_argument('--login-opcional', action='store_true', help='o app abre sem exigir conta (por padrao o emulador exige login, como o site publicado)')
     ap.add_argument('--convite', default='FAMILIA2026')
     ap.add_argument('--ttl', type=int, default=3600, help='validade do token, em segundos')
     ap.add_argument('--recente', type=int, default=300, help='por quantos segundos um login conta como recente (excluir a conta exige isso)')
     args = ap.parse_args()
+    LOGIN_OPCIONAL = args.login_opcional
     ESTADO = Estado(args.convite, args.ttl, args.recente)
     servidor = ThreadingHTTPServer(('127.0.0.1', args.porta), Handler)
     print(f'Emulador do Pauta em http://127.0.0.1:{args.porta}/  (aparelho 2: http://localhost:{args.porta}/)')

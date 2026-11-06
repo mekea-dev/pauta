@@ -2,6 +2,16 @@
 // Aqui ficam as REGRAS (o que fazer com os dados deste aparelho); as telas ficam em ui/account.js.
 import { CloudError } from './firebase.js';
 
+/** O login é obrigatório? Só faz sentido com o Firebase configurado (sem ele não há onde entrar). */
+export function loginRequired(config) {
+  return Boolean(config?.apiKey && config?.databaseUrl && config?.exigirLogin);
+}
+
+/** Tem que mostrar a tela de entrada (e esconder o app) agora? */
+export function needsLogin(config, session) {
+  return loginRequired(config) && !session;
+}
+
 /**
  * Entra (ou cria a conta) e faz a primeira sincronização.
  * Regras para os dados que já existem neste aparelho:

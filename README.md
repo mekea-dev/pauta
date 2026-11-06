@@ -2,7 +2,7 @@
 
 **Agenda de tarefas do dia a dia: simples, rápida e feita para o navegador, até sem internet.**
 
-Escreva a tarefa do jeito que você falaria (`Pagar boleto amanhã 10h !alta #contas`) e o Pauta entende a data, a hora, a prioridade e a etiqueta. Cada tarefa pode ter **checklist** e **anotações**. Roda direto no GitHub Pages, sem servidor e sem rastreamento. Se quiser ver as mesmas tarefas no celular, no notebook e no PC, dá para ligar o **login e a sincronização** (opcional e gratuito: [veja como](docs/NUVEM.md)).
+Escreva a tarefa do jeito que você falaria (`Pagar boleto amanhã 10h !alta #contas`) e o Pauta entende a data, a hora, a prioridade e a etiqueta. Cada tarefa pode ter **checklist** e **anotações**. Roda direto no GitHub Pages, sem servidor e sem rastreamento. Se quiser ver as mesmas tarefas no celular, no notebook e no PC, dá para ligar o **login e a sincronização** (gratuito; a conta pode ser opcional ou obrigatória: [veja como](docs/NUVEM.md)).
 
 > **Abrir o app:** <https://mekea-dev.github.io/pauta/> (para publicar uma cópia sua, veja [Publicar](#publicar-no-github-pages)).
 
@@ -21,7 +21,7 @@ Escreva a tarefa do jeito que você falaria (`Pagar boleto amanhã 10h !alta #co
 - **Repetição**: todo dia, dias úteis, dias da semana, a cada N semanas, todo mês, todo ano. Ao concluir, a próxima já é criada; as repetições futuras aparecem esmaecidas na agenda e no calendário.
 - **Calendário** do mês, **Próximos dias**, **Pendentes**, **Sem data**, **Concluídas** e **busca** (título, anotações, etiquetas e checklist).
 - **Desfazer** (aviso na tela e `Ctrl+Z`), atalhos de teclado e **tema claro, escuro ou automático** (botão no topo da tela).
-- **Conta opcional**: login por e-mail e senha para ver as mesmas tarefas em todos os aparelhos, com sincronização automática (Firebase, plano gratuito). Passo a passo em [docs/NUVEM.md](docs/NUVEM.md).
+- **Conta** (opcional, ou obrigatória se você preferir): login por e-mail e senha para ver as mesmas tarefas em todos os aparelhos, com sincronização automática (Firebase, plano gratuito). Passo a passo em [docs/NUVEM.md](docs/NUVEM.md).
 - **Backup** em JSON, **importar** (mesclar ou substituir) e **planilha CSV** que abre direto no Excel em português.
 - **Instalável** (PWA) e **offline**. Layout para celular.
 
@@ -87,7 +87,7 @@ O app é um site estático (HTML, CSS e JavaScript puros): **não precisa de bui
 
 Para atualizar o app, é só enviar a mudança de novo; o GitHub Pages republica sozinho. O arquivo `.nojekyll` já está no projeto (evita processamento desnecessário do Jekyll).
 
-**Login e sincronização (opcional):** antes ou depois de publicar, siga o guia [docs/NUVEM.md](docs/NUVEM.md): você cria um projeto gratuito no Firebase e preenche `js/cloud/config.js`. Sem isso o app funciona normalmente, só que cada aparelho com as próprias tarefas.
+**Login e sincronização:** antes ou depois de publicar, siga o guia [docs/NUVEM.md](docs/NUVEM.md): você cria um projeto gratuito no Firebase e preenche `js/cloud/config.js`. Sem isso o app funciona normalmente, só que cada aparelho com as próprias tarefas. Com a nuvem ligada, a opção `exigirLogin` decide se a conta é obrigatória (`true`: o app só abre depois de entrar) ou opcional (`false`).
 
 ### Instalar como aplicativo
 
@@ -96,15 +96,16 @@ Para atualizar o app, é só enviar a mudança de novo; o GitHub Pages republica
 
 ## Seus dados e privacidade
 
-**Sem conta (o padrão)**
+**Sem conta (nuvem desligada, ou `exigirLogin: false` e a pessoa não entrou)**
 
 - As tarefas ficam **só no navegador** (localStorage), **neste aparelho**. Nada é enviado para servidor nenhum, e o app não usa analytics nem fontes externas.
 - Em outro navegador ou aparelho, as tarefas **não aparecem sozinhas**: use **Configurações > Baixar backup** e **Importar backup** (dá para mesclar com o que já existe).
 - Limpar os dados do navegador apaga as tarefas. **Faça backup de vez em quando.**
 - No **Safari**, sites usados sem instalar podem ter os dados apagados após uns 7 dias sem uso; instalar na Tela de Início evita isso.
 
-**Com conta (opcional)**
+**Com conta**
 
+- Com `exigirLogin: true`, o app só abre para quem entrou: a tela de entrada vem antes de qualquer tarefa. É uma regra do próprio app (quem baixar o código pode desligá-la no computador dele); o que protege os dados na nuvem é o login, as regras do banco e o código de convite.
 - As tarefas de cada pessoa ficam guardadas no **seu projeto Firebase** (do Google), ligadas ao e-mail dela, e também no aparelho, então o app continua funcionando sem internet. Quem administra o projeto consegue ver os dados; as regras do banco impedem que uma pessoa veja os de outra. Avise quem você convidar. Não há criptografia de ponta a ponta: não guarde segredos (senhas, cartões) nas tarefas.
 - **Sair deste aparelho** remove as tarefas dali (elas continuam na conta). **Excluir minha conta** pede a senha e apaga a conta e os dados da nuvem.
 

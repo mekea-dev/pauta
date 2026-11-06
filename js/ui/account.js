@@ -1,10 +1,12 @@
-// Telas da conta (opcional): entrar / criar conta, estado da sincronização no menu e o cartão da conta nas Configurações.
-// As regras do que acontece com os dados ficam em cloud/account.js; aqui é só a tela.
-import { connect, disconnect, removeAccount } from '../cloud/account.js';
+// Telas da conta: entrar / criar conta, estado da sincronização no menu e o cartão da conta nas Configurações.
+// Conta OPCIONAL: entrar e criar conta abrem numa janela. Conta OBRIGATÓRIA (exigirLogin em cloud/config.js): uma tela de
+// entrada cobre o app inteiro enquanto não houver sessão. As regras do que acontece com os dados ficam em cloud/account.js;
+// aqui é só a tela.
+import { connect, disconnect, loginRequired, needsLogin, removeAccount } from '../cloud/account.js';
 import { formatStamp } from '../dates.js';
 import { plural } from '../text.js';
-import { h } from './dom.js';
-import { icon } from './icons.js';
+import { h, isTouch, qs } from './dom.js';
+import { icon, logo } from './icons.js';
 import { choiceDialog, confirmDialog, passwordDialog, toast } from './overlay.js';
 
 const STATUS_TEXT = { idle: 'Sincronizado', syncing: 'Sincronizando…', offline: 'Sem conexão', error: 'Erro ao sincronizar' };
@@ -14,13 +16,14 @@ const EMAIL_OK = /^\S+@\S+\.\S+$/;
 export function createAccountUI(app) {
   const { cloud, sync, store } = app;
   // sem Firebase configurado: nada de conta aparece no app
-  if (!cloud) return { enabled: false, sidebarItem: () => null, section: () => null, open() {} };
+  if (!cloud) return { enabled: false, required: false, gated: false, start() {}, sidebarItem: () => null, section: () => null, open() {} };
   const config = app.cloudConfig;
+  const required = loginRequired(config);
 
   const dlg = h('dialog', { class: 'dialog dialog-sm auth', 'aria-labelledby': 'au-title' });
   document.body.append(dlg);
   let mode = 'signIn';
-  let busy = false;
+  let busy = false; // entrando, criando a conta ou pedindo o e-mail de redefinição
   let lastEmail = '';
   let downOnBackdrop = false;
   dlg.addEventListener('pointerdown', (e) => { downOnBackdrop = e.target === dlg; });
@@ -45,8 +48,21 @@ export function createAccountUI(app) {
     ],
   });
 
-  function build() {
-    const signUp = mode === 'signUp';
+  /** Aviso depois de entrar ou criar a conta. */
+  const welcome = (signUp, r) => toast(signUp ? 'Conta criada. Suas tarefas estão sendo sincronizadas.'
+    : r.ok ? 'Conectado. Suas tarefas estão sincronizadas.'
+    : 'Conectado, mas não consegui sincronizar agora. Vou tentar de novo.');
+
+  /** Aviso de privacidade que acompanha o cadastro. */
+  const privacyNote = () => h('p', { class: 'auth-note' }, icon('shield', 15),
+    h('span', {}, `Suas tarefas ficam guardadas na nuvem (Firebase, do Google), ligadas ao seu e-mail. Quem administra o serviço consegue ver os dados armazenados.${required ? '' : ' Sem conta, nada sai do seu aparelho.'}`));
+
+  /**
+   * O formulário de entrar / criar conta (o mesmo na janela e na tela de entrada).
+   * onSwitch(modo): a pessoa quer trocar entre "Entrar" e "Criar conta". onDone(criou, resultado): deu certo.
+   */
+  function buildForm(m, { onSwitch, onDone }) {
+    const signUp = m === 'signUp';
     const email = h('input', {
       class: 'input', type: 'email', autocomplete: 'email', inputmode: 'email', autocapitalize: 'none', spellcheck: 'false',
       placeholder: 'voce@exemplo.com', value: lastEmail, 'aria-label': 'E-mail',
@@ -98,12 +114,9 @@ export function createAccountUI(app) {
       show('');
       setBusy(true);
       try {
-        const r = await connect({ cloud, sync, store, mode, email: e, password: p, convite: invite?.value.trim() ?? '', askAdopt });
+        const r = await connect({ cloud, sync, store, mode: m, email: e, password: p, convite: invite?.value.trim() ?? '', askAdopt });
         if (r.cancelled) return setBusy(false);
-        dlg.close();
-        toast(signUp ? 'Conta criada. Suas tarefas estão sendo sincronizadas.'
-          : r.ok ? 'Conectado. Suas tarefas estão sincronizadas.'
-          : 'Conectado, mas não consegui sincronizar agora. Vou tentar de novo.');
+        onDone(signUp, r);
       } catch (err) {
         show(err?.message ?? 'Não foi possível concluir. Tente de novo.');
       }
@@ -136,26 +149,114 @@ export function createAccountUI(app) {
       signUp ? null : h('div', { class: 'auth-links' }, resetBtn),
       h('p', { class: 'auth-switch' },
         signUp ? 'Já tem conta? ' : 'Ainda não tem conta? ',
-        h('button', { class: 'link-btn', type: 'button', onclick: () => { lastEmail = email.value.trim(); open(signUp ? 'signIn' : 'signUp'); } }, signUp ? 'Entrar' : 'Criar conta')));
+        h('button', { class: 'link-btn', type: 'button', onclick: () => { lastEmail = email.value.trim(); onSwitch(signUp ? 'signIn' : 'signUp'); } }, signUp ? 'Entrar' : 'Criar conta')));
+    return { form, email };
+  }
 
+  // ---------- janela de entrar (conta opcional) ----------
+  function build() {
+    const signUp = mode === 'signUp';
+    const { form, email } = buildForm(mode, {
+      onSwitch: (m) => open(m),
+      onDone: (isSignUp, r) => { dlg.close(); welcome(isSignUp, r); },
+    });
     dlg.replaceChildren(h('div', { class: 'dialog-body' },
       h('div', { class: 'auth-head' },
-        h('h2', { id: 'au-title', class: 'dialog-title' }, label),
+        h('h2', { id: 'au-title', class: 'dialog-title' }, signUp ? 'Criar conta' : 'Entrar'),
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fechar', onclick: () => { if (!busy) dlg.close(); } }, icon('x', 20))),
       h('p', { class: 'dialog-text' }, signUp ? 'Veja as mesmas tarefas no celular, no notebook e no PC.' : 'Entre para ver suas tarefas em qualquer aparelho.'),
       form,
-      signUp
-        ? h('p', { class: 'auth-note' }, icon('shield', 15),
-          h('span', {}, 'Suas tarefas ficam guardadas na nuvem (Firebase, do Google), ligadas ao seu e-mail. Quem administra o serviço consegue ver os dados armazenados. Sem conta, nada sai do seu aparelho.'))
-        : null));
+      signUp ? privacyNote() : null));
     return email;
   }
 
   function open(m = 'signIn') {
+    if (required) {
+      if (!cloud.session) showGate();
+      return;
+    }
     mode = m;
     const email = build();
     if (!dlg.open) dlg.showModal();
     email.focus();
+  }
+
+  // ---------- tela de entrada (login obrigatório) ----------
+  let gateEl = null;
+  let gateOn = false;
+  let gateMode = 'signIn';
+  let gateNotice = '';
+  const shell = () => [qs('.app'), qs('#fab')].filter(Boolean);
+
+  function renderGate() {
+    const signUp = gateMode === 'signUp';
+    const { form, email } = buildForm(gateMode, {
+      onSwitch: (m) => { gateMode = m; renderGate().focus(); },
+      onDone: (isSignUp, r) => {
+        hideGate();
+        welcome(isSignUp, r);
+        app.render();
+        if (!isTouch()) app.composer.focus();
+      },
+    });
+    gateEl.replaceChildren(h('div', { class: 'gate-card' },
+      h('div', { class: 'gate-brand' }, logo(34), h('span', {}, 'Pauta')),
+      h('h1', { id: 'gate-title', class: 'gate-title' }, signUp ? 'Criar conta' : 'Entrar'),
+      h('p', { class: 'gate-text' }, signUp
+        ? 'Crie sua conta com o código de convite. Suas tarefas ficam sincronizadas no celular, no notebook e no PC.'
+        : 'Entre com a sua conta para ver e criar suas tarefas.'),
+      h('p', { class: 'auth-msg info gate-notice', role: 'status', hidden: !gateNotice }, gateNotice),
+      form,
+      signUp ? privacyNote() : null));
+    return email;
+  }
+
+  function setGateNotice(text) {
+    gateNotice = text;
+    const el = gateEl?.querySelector('.gate-notice');
+    if (el) {
+      el.textContent = text;
+      el.hidden = !text;
+    }
+  }
+
+  function showGate(notice = '') {
+    if (!gateEl) {
+      gateEl = h('main', { class: 'gate', id: 'gate', 'aria-labelledby': 'gate-title' });
+      document.body.append(gateEl);
+    }
+    gateNotice = notice;
+    gateOn = true;
+    document.body.classList.add('gated');
+    for (const el of shell()) el.setAttribute('inert', '');
+    // janelas abertas ficam por cima de tudo (camada superior do navegador): fecha para não aparecerem sobre a tela de entrada
+    for (const d of document.querySelectorAll('dialog[open]')) d.close();
+    gateEl.hidden = false;
+    renderGate().focus();
+  }
+
+  function hideGate() {
+    gateOn = false;
+    gateNotice = '';
+    document.body.classList.remove('gated');
+    for (const el of shell()) el.removeAttribute('inert');
+    if (gateEl) {
+      gateEl.hidden = true;
+      gateEl.replaceChildren(); // não deixa e-mail e senha digitados para trás
+    }
+  }
+
+  /** Chamado uma vez, antes do primeiro desenho: com login obrigatório e sem sessão, a tela de entrada vem antes de qualquer tarefa. */
+  function start() {
+    if (!required) return;
+    if (needsLogin(config, cloud.session)) showGate();
+    cloud.onChange((session) => {
+      if (!session && !gateOn) showGate(sync.status.errorCode === 'session' ? sync.status.error ?? '' : ''); // saiu, a sessão venceu ou a conta foi excluída
+      else if (session && gateOn && !busy) location.reload(); // entrou em outra aba deste navegador: recomeça já com a sessão
+    });
+    sync.onChange((st) => {
+      if (gateOn && st.errorCode === 'session' && st.error && st.error !== gateNotice) setGateNotice(st.error);
+    });
   }
 
   // ---------- menu lateral ----------
@@ -201,7 +302,9 @@ export function createAccountUI(app) {
   async function erase() {
     const done = await passwordDialog({
       title: 'Excluir sua conta?',
-      message: 'Sua conta e todas as tarefas guardadas na nuvem serão apagadas e isso não pode ser desfeito. As tarefas deste aparelho continuam aqui. Digite sua senha para confirmar.',
+      message: `Sua conta e todas as tarefas guardadas na nuvem serão apagadas e isso não pode ser desfeito. ${required
+        ? 'Para usar o Pauta de novo você vai precisar criar uma nova conta; as tarefas deste aparelho entram nela.'
+        : 'As tarefas deste aparelho continuam aqui.'} Digite sua senha para confirmar.`,
       confirmLabel: 'Excluir a conta', danger: true,
       run: async (password) => {
         try {
@@ -214,7 +317,7 @@ export function createAccountUI(app) {
     });
     if (!done) return;
     app.settings.close();
-    toast('Conta excluída. Suas tarefas continuam neste aparelho.');
+    toast(required ? 'Conta excluída. Para voltar a usar o Pauta, crie uma nova conta.' : 'Conta excluída. Suas tarefas continuam neste aparelho.');
   }
 
   function section() {
@@ -243,5 +346,5 @@ export function createAccountUI(app) {
         h('button', { class: 'btn btn-danger-ghost', type: 'button', onclick: erase }, icon('trash', 16), 'Excluir minha conta')));
   }
 
-  return { enabled: true, sidebarItem, section, open };
+  return { enabled: true, required, get gated() { return gateOn; }, start, sidebarItem, section, open };
 }

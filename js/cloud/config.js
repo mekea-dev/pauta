@@ -9,6 +9,10 @@ export const CLOUD = {
   // Endereço do Realtime Database, ex.: https://meu-projeto-default-rtdb.firebaseio.com
   databaseUrl: 'https://pauta-familia-default-rtdb.firebaseio.com',
 
+  // true: só usa o Pauta quem entrou numa conta; a tela de entrada aparece antes de tudo e não dá para pular.
+  // false: a conta é opcional (sem conta, as tarefas ficam só neste aparelho). Só vale com apiKey e databaseUrl preenchidos.
+  exigirLogin: true,
+
   // true: quem cria conta precisa digitar um código de convite (você define o código no banco, no item `convite`).
   // Recomendado para um grupo fechado de amigos e família.
   exigirConvite: true,

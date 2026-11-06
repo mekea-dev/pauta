@@ -109,17 +109,23 @@ Dicas:
    export const CLOUD = {
      apiKey: 'AIza...cole-aqui-a-sua-chave',
      databaseUrl: 'https://pauta-familia-default-rtdb.firebaseio.com',
+     exigirLogin: true,
      exigirConvite: true,
      // não mexa nas duas linhas seguintes
      ...
    ```
 
    O endereço do banco é o do passo 3, sem a barra no final.
+3. Escolha como a conta funciona no seu site:
+   - `exigirLogin: true` (o padrão): o app **só abre para quem entrou numa conta**. A tela de entrada vem antes de tudo e não dá para pular; as tarefas só aparecem depois do login. Quem já entrou continua usando normalmente, inclusive sem internet.
+   - `exigirLogin: false`: a conta é **opcional**. Quem não entra usa o app só naquele aparelho, e o menu lateral mostra **Entrar ou criar conta**.
+
+   Isso é uma regra do próprio app, não uma proteção contra quem baixar o código (essa pessoa pode desligá-la no computador dela). O que protege os dados na nuvem é o login, as regras do banco e o código de convite.
 
 ## Passo 7 - Testar no seu computador
 
 1. Abra o site localmente (veja "Desenvolvimento" no [README](../README.md): `servir.ps1` e `http://localhost:8789/`).
-2. No menu lateral aparece **Entrar ou criar conta**. Crie uma conta com e-mail, senha (pelo menos 8 caracteres) e o código de convite.
+2. Com `exigirLogin: true`, o app abre direto na tela de entrada (com `false`, o menu lateral mostra **Entrar ou criar conta**). Toque em **Criar conta** e crie uma conta com e-mail, senha (pelo menos 8 caracteres) e o código de convite.
 3. Adicione uma tarefa. Em instantes, no Firebase (Realtime Database > Dados), aparece `users/<id>` com os campos `blob`, `convite`, `sig`, `updatedAt` e `v`.
 4. Abra o site em outro navegador (ou em uma janela anônima) e entre com o mesmo e-mail e senha: a tarefa aparece.
 5. Teste um código de convite errado ao criar outra conta: o app deve recusar e **não** deixar a conta criada.
@@ -139,7 +145,7 @@ Se depois disso o app disser "A chave de API do Firebase não é aceita para est
 
 ## Passo 9 - Publicar
 
-Publique como no [README](../README.md#publicar-no-github-pages). Para cada pessoa que você quiser convidar, mande o endereço do site e o código de convite. Ela abre o site, toca em **Entrar ou criar conta** e escolhe **Criar conta**.
+Publique como no [README](../README.md#publicar-no-github-pages). Para cada pessoa que você quiser convidar, mande o endereço do site e o código de convite. Ela abre o site e, na tela de entrada, toca em **Criar conta** (com `exigirLogin: false`, é no menu lateral, em **Entrar ou criar conta**).
 
 ## Dia a dia
 
@@ -151,7 +157,7 @@ Publique como no [README](../README.md#publicar-no-github-pages). Para cada pess
 
 - Cada aparelho guarda tudo localmente, então o Pauta continua funcionando sem internet. Com a conta, o app envia as mudanças alguns segundos depois de você mexer e busca as novidades ao voltar para a aba, quando a internet volta e a cada 90 segundos com o app aberto. Para checar se algo mudou, ele consulta só uma assinatura minúscula; baixa tudo apenas quando houve mudança.
 - Nada se perde: mudanças em tarefas diferentes se juntam. Se duas pessoas ou aparelhos mexerem na **mesma** tarefa, vale a alteração mais recente. Excluir em um aparelho exclui nos outros. Etiquetas com o mesmo nome viram uma só.
-- **Sair deste aparelho** envia o que falta e remove as tarefas daquele aparelho (elas continuam na conta); assim ninguém que usar o aparelho depois vê as suas. **Excluir minha conta** pede a senha e apaga a conta e os dados da nuvem; as tarefas do aparelho ficam.
+- **Sair deste aparelho** envia o que falta e remove as tarefas daquele aparelho (elas continuam na conta); assim ninguém que usar o aparelho depois vê as suas. **Excluir minha conta** pede a senha e apaga a conta e os dados da nuvem; as tarefas do aparelho ficam. Com `exigirLogin: true`, depois de sair, de excluir a conta ou de a sessão vencer (por exemplo, senha trocada em outro lugar) o app volta para a tela de entrada; as tarefas daquele aparelho só aparecem de novo depois de entrar, e entrar com **outra** conta nunca mistura os dados.
 - Um aparelho que passe mais de 90 dias sem sincronizar pode "ressuscitar" tarefas que foram excluídas nesse meio-tempo (o registro de exclusões é limpo depois de 90 dias).
 
 ## Limites do plano gratuito
@@ -170,14 +176,16 @@ Publique como no [README](../README.md#publicar-no-github-pages). Para cada pess
 | "O servidor recusou o acesso (código de convite incorreto ou regras do banco)" | Confira o item `convite` na raiz do banco (maiúsculas e minúsculas contam) e se as regras do passo 4 foram publicadas. |
 | "Código de convite incorreto" ao criar conta | O código digitado não confere com o item `convite`. |
 | "Sem conexão com a internet" com a internet funcionando | Bloqueador de anúncios, firewall ou rede de empresa bloqueando `googleapis.com` ou `firebaseio.com`. |
-| Não aparece **Entrar ou criar conta** | `apiKey` ou `databaseUrl` vazios, ou o navegador está com a versão antiga: recarregue com `Ctrl` + `F5`. |
+| Não aparece a tela de entrada nem **Entrar ou criar conta** | `apiKey` ou `databaseUrl` vazios, ou o navegador está com a versão antiga: recarregue com `Ctrl` + `F5`. |
+| O app abre sem pedir login | `exigirLogin` está `false` em `js/cloud/config.js`, ou a pessoa já entrou neste aparelho. |
+| Ninguém consegue entrar e o app não abre | Com `exigirLogin: true` o app depende do login: confira a chave de API e a lista de sites do passo 8, e se o Firebase está no ar. Para liberar o uso sem conta enquanto resolve, troque `exigirLogin` para `false`. |
 | O e-mail de redefinição de senha não chega | Olhe o spam. O remetente é `noreply@SEU-PROJETO.firebaseapp.com`. |
 | "Há tarefas demais para sincronizar" | Apague tarefas concluídas antigas. |
 | "Muitas tentativas" | Espere alguns minutos. |
 
 ## Desligar a nuvem
 
-Esvazie `apiKey` e `databaseUrl` em `js/cloud/config.js` e publique de novo: as telas de conta somem e as tarefas continuam no aparelho. Para apagar tudo que está na nuvem, exclua o projeto no Firebase (Configurações do projeto > Excluir projeto).
+Esvazie `apiKey` e `databaseUrl` em `js/cloud/config.js` e publique de novo: as telas de conta somem e as tarefas continuam no aparelho. Para manter a nuvem mas deixar a conta opcional, basta trocar `exigirLogin` para `false`. Para apagar tudo que está na nuvem, exclua o projeto no Firebase (Configurações do projeto > Excluir projeto).
 
 ## Testar sem criar nada no Firebase (emulador)
 
@@ -187,6 +195,6 @@ Para experimentar o login e a sincronização no seu computador, sem conta no Fi
 python scripts/emulador-nuvem.py
 ```
 
-Abra `http://127.0.0.1:8790/` (aparelho 1) e `http://localhost:8790/` (aparelho 2): endereços diferentes têm armazenamento separado no navegador, então funcionam como dois aparelhos. O código de convite do emulador é `FAMILIA2026`. Tudo fica na memória e some ao fechar. Opções: `--porta`, `--convite`, `--ttl` (validade do token, em segundos) e `--recente` (por quanto tempo um login conta como recente para excluir a conta).
+Abra `http://127.0.0.1:8790/` (aparelho 1) e `http://localhost:8790/` (aparelho 2): endereços diferentes têm armazenamento separado no navegador, então funcionam como dois aparelhos. O código de convite do emulador é `FAMILIA2026`. Tudo fica na memória e some ao fechar. Opções: `--porta`, `--convite`, `--ttl` (validade do token, em segundos), `--recente` (por quanto tempo um login conta como recente para excluir a conta) e `--login-opcional` (o emulador exige login, como o site publicado; com essa opção a conta é opcional).
 
 O emulador e os testes automáticos seguem a documentação do Firebase, mas **não são o Firebase de verdade**: faça o passo 7 com o seu projeto antes de convidar alguém.

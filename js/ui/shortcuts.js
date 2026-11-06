@@ -41,7 +41,7 @@ export function installShortcuts(app) {
   }
 
   document.addEventListener('keydown', (e) => {
-    if (e.defaultPrevented || e.isComposing) return;
+    if (e.defaultPrevented || e.isComposing || app.account.gated) return; // com a tela de entrada na frente, atalho nenhum vale
     const typing = e.target.closest?.('input, textarea, select, [contenteditable="true"]');
     const modal = document.querySelector('dialog[open]');
 

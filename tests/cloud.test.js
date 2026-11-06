@@ -1,7 +1,7 @@
 // Login e sincronização contra o "Firebase de mentira" (tests/helpers/fake-firebase.js).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { connect, disconnect, removeAccount } from '../js/cloud/account.js';
+import { connect, disconnect, loginRequired, needsLogin, removeAccount } from '../js/cloud/account.js';
 import { createCloud, mapAuthError } from '../js/cloud/firebase.js';
 import { createSync } from '../js/cloud/sync.js';
 import { defaultSettings, seedState } from '../js/model.js';
@@ -535,4 +535,66 @@ test('excluir a conta espera a sincronização em andamento, para não deixar da
   assert.equal((await removing).ok, true);
   assert.equal(fb.data.size, 0);
   assert.equal(fb.users.size, 0);
+});
+
+// ---------- login obrigatório (exigirLogin) ----------
+
+test('login obrigatório: só vale com o Firebase configurado e com exigirLogin ligado', () => {
+  const base = { apiKey: 'k', databaseUrl: 'https://x.firebaseio.com' };
+  assert.equal(loginRequired({ ...base, exigirLogin: true }), true);
+  assert.equal(loginRequired({ ...base, exigirLogin: false }), false);
+  assert.equal(loginRequired({ ...base }), false);
+  assert.equal(loginRequired({ ...base, apiKey: '', exigirLogin: true }), false, 'sem chave não há onde entrar');
+  assert.equal(loginRequired({ ...base, databaseUrl: '', exigirLogin: true }), false, 'sem banco não há onde entrar');
+  assert.equal(loginRequired(undefined), false);
+});
+
+test('login obrigatório: sem sessão pede a entrada; com sessão libera; sair, excluir a conta ou perder a sessão avisam a tela', async () => {
+  const config = { ...CONFIG, exigirLogin: true };
+  const fb = createFakeFirebase({ now });
+  const a = newDevice(fb);
+  const avisos = [];
+  a.cloud.onChange((s) => avisos.push(s ? 'com sessão' : 'sem sessão')); // é o que a tela de entrada escuta
+  assert.equal(needsLogin(config, a.cloud.session), true, 'aparelho novo: tela de entrada');
+  assert.equal(needsLogin({ ...config, exigirLogin: false }, a.cloud.session), false, 'sem a opção ligada, a conta é opcional');
+
+  assert.equal((await connect({ ...a, mode: 'signUp', email: EMAIL, password: PASS, convite: 'FAMILIA' })).ok, true);
+  assert.equal(needsLogin(config, a.cloud.session), false, 'entrou: o app abre');
+
+  await disconnect(a); // sair deste aparelho
+  assert.equal(needsLogin(config, a.cloud.session), true);
+  assert.equal(avisos.at(-1), 'sem sessão');
+
+  await connect({ ...a, mode: 'signIn', email: EMAIL, password: PASS });
+  assert.equal(needsLogin(config, a.cloud.session), false);
+  fb.users.clear(); // a conta deixou de existir (apagada em outro lugar)
+  fb.expireAllTokens();
+  await assert.rejects(() => a.cloud.dbGet('users/qualquer'), { code: 'session' });
+  assert.equal(needsLogin(config, a.cloud.session), true, 'sessão vencida de vez: volta para a tela de entrada');
+  assert.equal(avisos.at(-1), 'sem sessão');
+
+  await connect({ ...a, mode: 'signUp', email: EMAIL, password: PASS, convite: 'FAMILIA' });
+  assert.equal(needsLogin(config, a.cloud.session), false);
+  tick(60 * 60 * 1000); // o login já não é "recente"
+  await removeAccount({ ...a, password: PASS }); // excluir a conta
+  assert.equal(needsLogin(config, a.cloud.session), true);
+  assert.equal(avisos.at(-1), 'sem sessão');
+});
+
+test('login obrigatório: depois de sair, as tarefas somem do aparelho e voltam ao entrar de novo (nada fica à vista para o próximo)', async () => {
+  const fb = createFakeFirebase({ now });
+  const a = newDevice(fb, seedState('2026-11-06'));
+  await connect({ ...a, mode: 'signUp', email: EMAIL, password: PASS, convite: 'FAMILIA' });
+  a.store.addTask({ title: 'Só minha' });
+  await disconnect(a);
+  assert.equal(a.store.state.tasks.length, 0, 'aparelho limpo depois de sair');
+  assert.equal(a.store.state.owner, null);
+
+  const outra = await connect({ ...a, mode: 'signUp', email: 'bia@exemplo.com', password: PASS, convite: 'FAMILIA' });
+  assert.equal(outra.ok, true);
+  assert.ok(!titles(a.store).includes('Só minha'), 'outra pessoa no mesmo aparelho não vê as tarefas da primeira');
+
+  await disconnect(a);
+  await connect({ ...a, mode: 'signIn', email: EMAIL, password: PASS });
+  assert.ok(titles(a.store).includes('Só minha'), 'a primeira pessoa recupera as tarefas pela conta');
 });
