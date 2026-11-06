@@ -1,7 +1,7 @@
 // Login e sincronização contra o "Firebase de mentira" (tests/helpers/fake-firebase.js).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { connect, disconnect, loginRequired, needsLogin, removeAccount } from '../js/cloud/account.js';
+import { connect, disconnect, isEmail, loginRequired, needsLogin, removeAccount, validateCredentials } from '../js/cloud/account.js';
 import { createCloud, mapAuthError } from '../js/cloud/firebase.js';
 import { createSync } from '../js/cloud/sync.js';
 import { defaultSettings, seedState } from '../js/model.js';
@@ -535,6 +535,46 @@ test('excluir a conta espera a sincronização em andamento, para não deixar da
   assert.equal((await removing).ok, true);
   assert.equal(fb.data.size, 0);
   assert.equal(fb.users.size, 0);
+});
+
+// ---------- o que a pessoa digita ao entrar ou criar a conta ----------
+
+test('e-mail: precisa ter o formato básico e espaços nas pontas são ignorados', () => {
+  assert.equal(isEmail('ana@exemplo.com'), true);
+  assert.equal(isEmail('  ana@exemplo.com  '), true);
+  for (const ruim of ['', 'ana', 'ana@', '@exemplo.com', 'ana@exemplo', 'ana exemplo@x.com', null, undefined]) assert.equal(isEmail(ruim), false, String(ruim));
+});
+
+test('criar conta: a senha é digitada duas vezes e as duas precisam ser idênticas', () => {
+  const ok = { mode: 'signUp', email: EMAIL, password: 'Senha1234', confirm: 'Senha1234' };
+  assert.equal(validateCredentials(ok), null);
+  assert.deepEqual(validateCredentials({ ...ok, confirm: '' }), { field: 'confirm', message: 'Digite a senha de novo, no campo de confirmação.' });
+  for (const confirm of ['Senha1235', 'senha1234', 'Senha1234 ', ' Senha1234', 'Senha123']) {
+    const p = validateCredentials({ ...ok, confirm });
+    assert.equal(p?.field, 'confirm', `"${confirm}" não confere`);
+    assert.match(p.message, /não são iguais/);
+  }
+});
+
+test('criar conta: os problemas aparecem na ordem em que a pessoa preenche (e-mail, senha, confirmação, código)', () => {
+  const base = { mode: 'signUp', email: EMAIL, password: 'Senha1234', confirm: 'Senha1234', convite: '', exigirConvite: false };
+  assert.equal(validateCredentials({ ...base, email: 'ana' }).field, 'email');
+  assert.equal(validateCredentials({ ...base, password: '', confirm: '' }).field, 'password');
+  assert.equal(validateCredentials({ ...base, password: 'curta', confirm: 'curta' }).field, 'password', 'mínimo de 8 caracteres, mesmo com a confirmação igual');
+  assert.match(validateCredentials({ ...base, password: 'curta', confirm: 'curta' }).message, /pelo menos 8/);
+  assert.equal(validateCredentials({ ...base, confirm: 'outra' }).field, 'confirm');
+  // só pede o código se ele for exigido, e só depois de a senha estar certa
+  assert.equal(validateCredentials({ ...base, exigirConvite: false }), null);
+  assert.equal(validateCredentials({ ...base, exigirConvite: true, convite: '   ' }).field, 'convite');
+  assert.equal(validateCredentials({ ...base, exigirConvite: true, convite: 'codigo' }), null);
+  assert.equal(validateCredentials({ ...base, exigirConvite: true, convite: '', confirm: 'outra' }).field, 'confirm');
+});
+
+test('entrar: só pede e-mail válido e senha (sem confirmação e sem mínimo de caracteres)', () => {
+  assert.equal(validateCredentials({ mode: 'signIn', email: EMAIL, password: 'x' }), null);
+  assert.equal(validateCredentials({ mode: 'signIn', email: EMAIL, password: 'x', confirm: 'diferente' }), null);
+  assert.equal(validateCredentials({ mode: 'signIn', email: 'ana', password: 'x' }).field, 'email');
+  assert.equal(validateCredentials({ mode: 'signIn', email: EMAIL, password: '' }).field, 'password');
 });
 
 // ---------- cadastro aberto (exigirConvite: false, regras de docs/regras-banco-aberto.json) ----------

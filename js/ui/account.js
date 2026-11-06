@@ -2,7 +2,7 @@
 // Conta OPCIONAL: entrar e criar conta abrem numa janela. Conta OBRIGATÓRIA (exigirLogin em cloud/config.js): uma tela de
 // entrada cobre o app inteiro enquanto não houver sessão. As regras do que acontece com os dados ficam em cloud/account.js;
 // aqui é só a tela.
-import { connect, disconnect, loginRequired, needsLogin, removeAccount } from '../cloud/account.js';
+import { connect, disconnect, isEmail, loginRequired, needsLogin, removeAccount, validateCredentials } from '../cloud/account.js';
 import { formatStamp } from '../dates.js';
 import { plural } from '../text.js';
 import { h, isTouch, qs } from './dom.js';
@@ -11,7 +11,6 @@ import { choiceDialog, confirmDialog, passwordDialog, toast } from './overlay.js
 
 const STATUS_TEXT = { idle: 'Sincronizado', syncing: 'Sincronizando…', offline: 'Sem conexão', error: 'Erro ao sincronizar' };
 const STATUS_ICON = { idle: 'cloud-check', syncing: 'sync', offline: 'cloud-off', error: 'cloud-alert' };
-const EMAIL_OK = /^\S+@\S+\.\S+$/;
 
 export function createAccountUI(app) {
   const { cloud, sync, store } = app;
@@ -63,19 +62,40 @@ export function createAccountUI(app) {
    */
   function buildForm(m, { onSwitch, onDone }) {
     const signUp = m === 'signUp';
-    const email = h('input', {
-      class: 'input', type: 'email', autocomplete: 'email', inputmode: 'email', autocapitalize: 'none', spellcheck: 'false',
+    // sem corretor nem maiúscula automática: o que aparece (inclusive com a senha à mostra) é o que a pessoa digitou
+    const raw = (el) => {
+      for (const [k, v] of [['autocapitalize', 'none'], ['autocorrect', 'off'], ['spellcheck', 'false']]) el.setAttribute(k, v);
+      return el;
+    };
+    const email = raw(h('input', {
+      class: 'input', type: 'email', autocomplete: 'email', inputmode: 'email',
       placeholder: 'voce@exemplo.com', value: lastEmail, 'aria-label': 'E-mail',
-    });
-    const pass = h('input', {
+    }));
+    const pass = raw(h('input', {
       class: 'input', type: 'password', autocomplete: signUp ? 'new-password' : 'current-password',
       placeholder: signUp ? 'Pelo menos 8 caracteres' : 'Sua senha', 'aria-label': 'Senha',
-    });
+    }));
+    // ao criar a conta a senha é digitada duas vezes (um erro de digitação viraria uma conta cuja senha ninguém sabe)
+    const confirm = signUp
+      ? raw(h('input', {
+        class: 'input', type: 'password', autocomplete: 'new-password',
+        placeholder: 'Repita a senha', 'aria-label': 'Confirmar a senha',
+      }))
+      : null;
+    const sameHint = h('span', { class: 'hint', role: 'status' });
+    const updateSame = () => {
+      const typed = Boolean(confirm?.value);
+      const same = typed && confirm.value === pass.value;
+      sameHint.textContent = !typed ? '' : same ? 'As senhas são iguais.' : 'As senhas ainda não são iguais.';
+      sameHint.className = `hint${same ? ' ok' : ''}`;
+    };
+    pass.addEventListener('input', updateSame);
+    confirm?.addEventListener('input', updateSame);
     const eye = h('button', {
       class: 'icon-btn sm', type: 'button', title: 'Mostrar a senha', 'aria-label': 'Mostrar a senha',
       onclick: () => {
         const show = pass.type === 'password';
-        pass.type = show ? 'text' : 'password';
+        for (const el of [pass, confirm]) if (el) el.type = show ? 'text' : 'password'; // mostra (ou esconde) as duas juntas
         eye.replaceChildren(icon(show ? 'eye-off' : 'eye', 16));
         eye.setAttribute('aria-label', show ? 'Esconder a senha' : 'Mostrar a senha');
         eye.title = show ? 'Esconder a senha' : 'Mostrar a senha';
@@ -96,7 +116,7 @@ export function createAccountUI(app) {
     };
     const setBusy = (b) => {
       busy = b;
-      for (const el of [email, pass, invite, submit, resetBtn, eye]) if (el) el.disabled = b;
+      for (const el of [email, pass, confirm, invite, submit, resetBtn, eye]) if (el) el.disabled = b;
       submit.replaceChildren(b ? spinner() : icon(signUp ? 'user-plus' : 'log-in', 16), label);
     };
 
@@ -105,12 +125,14 @@ export function createAccountUI(app) {
       const e = email.value.trim();
       const p = pass.value;
       lastEmail = e;
-      const problem = !EMAIL_OK.test(e) ? 'Digite um e-mail válido.'
-        : !p ? 'Digite a senha.'
-        : signUp && p.length < 8 ? 'Escolha uma senha com pelo menos 8 caracteres.'
-        : invite && !invite.value.trim() ? 'Digite o código de convite.'
-        : '';
-      if (problem) return show(problem);
+      const problem = validateCredentials({ mode: m, email: e, password: p, confirm: confirm?.value ?? '', convite: invite?.value ?? '', exigirConvite: Boolean(invite) });
+      if (problem) {
+        show(problem.message);
+        const target = { email, password: pass, confirm, convite: invite }[problem.field];
+        target?.focus();
+        if (problem.field === 'confirm') target?.select(); // já deixa selecionado para digitar por cima
+        return;
+      }
       show('');
       setBusy(true);
       try {
@@ -126,7 +148,7 @@ export function createAccountUI(app) {
     async function onReset() {
       if (busy) return;
       const e = email.value.trim();
-      if (!EMAIL_OK.test(e)) return show('Digite seu e-mail acima para receber o link de redefinição.');
+      if (!isEmail(e)) return show('Digite seu e-mail acima para receber o link de redefinição.');
       show('');
       setBusy(true);
       try {
@@ -143,6 +165,7 @@ export function createAccountUI(app) {
     const form = h('form', { class: 'auth-form', noValidate: true, onsubmit: (e) => { e.preventDefault(); onSubmit(); } },
       field('E-mail', email),
       field('Senha', h('div', { class: 'pass-row' }, pass, eye)),
+      confirm ? h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Confirmar senha'), confirm, sameHint) : null,
       invite ? field('Código de convite', invite, 'Peça o código para quem convidou você.') : null,
       msg,
       submit,

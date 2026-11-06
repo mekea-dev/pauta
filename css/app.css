@@ -555,6 +555,7 @@ a.chip.lbl:hover { background: color-mix(in srgb, var(--lc) 22%, transparent); }
 .ctrl-line { display: flex; align-items: center; gap: 8px; max-width: 100%; }
 .ctrl-line.wrap { flex-wrap: wrap; gap: 2px; margin-left: -6px; }
 .hint { color: var(--text-3); font-size: 13px; }
+.hint.ok { color: var(--success); font-weight: 600; }
 .ed-labels { display: flex; flex-wrap: wrap; gap: 6px; }
 .rec-custom { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .rec-days { display: flex; gap: 4px; }

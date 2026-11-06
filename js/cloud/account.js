@@ -2,6 +2,28 @@
 // Aqui ficam as REGRAS (o que fazer com os dados deste aparelho); as telas ficam em ui/account.js.
 import { CloudError } from './firebase.js';
 
+const EMAIL_OK = /^\S+@\S+\.\S+$/;
+const MIN_PASSWORD = 8;
+
+export const isEmail = (text) => EMAIL_OK.test(String(text ?? '').trim());
+
+/**
+ * Confere o que a pessoa digitou ANTES de falar com o servidor. Devolve `null` se está tudo certo, ou
+ * `{ field, message }` com o campo que precisa de atenção (email | password | confirm | convite) e o texto para mostrar.
+ * Ao criar a conta a senha é digitada duas vezes: um erro de digitação viraria uma conta cuja senha ninguém sabe.
+ * A senha nunca é "aparada": espaços e maiúsculas contam, e as duas digitações têm que ser idênticas.
+ */
+export function validateCredentials({ mode, email, password, confirm = '', convite = '', exigirConvite = false }) {
+  if (!isEmail(email)) return { field: 'email', message: 'Digite um e-mail válido.' };
+  if (!password) return { field: 'password', message: 'Digite a senha.' };
+  if (mode !== 'signUp') return null;
+  if (password.length < MIN_PASSWORD) return { field: 'password', message: `Escolha uma senha com pelo menos ${MIN_PASSWORD} caracteres.` };
+  if (!confirm) return { field: 'confirm', message: 'Digite a senha de novo, no campo de confirmação.' };
+  if (confirm !== password) return { field: 'confirm', message: 'As senhas não são iguais. Confira e digite de novo.' };
+  if (exigirConvite && !String(convite ?? '').trim()) return { field: 'convite', message: 'Digite o código de convite.' };
+  return null;
+}
+
 /** O login é obrigatório? Só faz sentido com o Firebase configurado (sem ele não há onde entrar). */
 export function loginRequired(config) {
   return Boolean(config?.apiKey && config?.databaseUrl && config?.exigirLogin);

@@ -161,7 +161,7 @@ Dicas:
 ## Passo 7 - Testar no seu computador
 
 1. Abra o site localmente (veja "Desenvolvimento" no [README](../README.md): `servir.ps1` e `http://localhost:8789/`).
-2. Com `exigirLogin: true`, o app abre direto na tela de entrada (com `false`, o menu lateral mostra **Entrar ou criar conta**). Toque em **Criar conta** e crie uma conta com e-mail e senha (pelo menos 8 caracteres) e, na opção B, o código de convite.
+2. Com `exigirLogin: true`, o app abre direto na tela de entrada (com `false`, o menu lateral mostra **Entrar ou criar conta**). Toque em **Criar conta** e crie uma conta com e-mail e senha (pelo menos 8 caracteres, digitada duas vezes para evitar erro de digitação) e, na opção B, o código de convite.
 3. Adicione uma tarefa. Em instantes, no Firebase (Realtime Database > Dados), aparece `users/<id>` com os campos `blob`, `sig`, `updatedAt` e `v` (e `convite`, na opção B).
 4. Abra o site em outro navegador (ou em uma janela anônima) e entre com o mesmo e-mail e senha: a tarefa aparece.
 5. Só na opção B: teste um código de convite errado ao criar outra conta; o app deve recusar e **não** deixar a conta criada.
