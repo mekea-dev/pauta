@@ -1,6 +1,13 @@
 # Histórico de versões
 
-As versões 1.0.0 a 1.4.1 foram feitas e publicadas em 06/11/2026; da 1.5.0 à 1.8.0, em 09/11/2026. A versão fica em `js/config.js` (`APP_VERSION`) e em `sw.js` (`VERSION`).
+As versões 1.0.0 a 1.4.1 foram feitas e publicadas em 06/11/2026; da 1.5.0 à 1.8.1, em 09/11/2026. A versão fica em `js/config.js` (`APP_VERSION`) e em `sw.js` (`VERSION`).
+
+## 1.8.1
+
+- **A tela de entrada sempre diz como instalar** (relato do dono: abriu o site numa janela anônima do Chrome e não viu o botão): quando o navegador não oferece o botão **Instalar** (janela anônima, Firefox, ou o Pauta já instalado e aberto numa aba), o bloco no alto da tela de entrada e de criar conta mostra a dica "No Chrome ou Edge, use o ícone de instalar na barra de endereço, numa janela normal (não anônima)". Depois de instalar (aceitando o pedido ou pelo ícone da barra de endereço), o bloco some e a dica não volta. Ele só não aparece quando o Pauta já está aberto como aplicativo.
+- Configurações: quando já está instalado, a seção "Instalar como aplicativo" diz "O Pauta já está instalado neste aparelho." (vale para o app aberto como aplicativo e para quem acabou de instalar naquela aba).
+- Por dentro: `app.installed` (marcado por `installNow` quando a pessoa aceita e pelo `appinstalled` de `js/main.js`) e `BROWSER_HELP`, em `js/ui/install.js`.
+- Testes: continuam 381 (os de `install` ganharam a marca de instalado e a dica).
 
 ## 1.8.0
 

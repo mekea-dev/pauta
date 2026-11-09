@@ -99,7 +99,7 @@ Para atualizar o app, é só enviar a mudança de novo; o GitHub Pages republica
 
 ### Instalar como aplicativo
 
-- **Chrome / Edge (computador e Android)**: ícone de instalar na barra de endereço, ou o botão **Instalar** do próprio Pauta (no alto da tela de entrada e em **Configurações > Instalar como aplicativo**).
+- **Chrome / Edge (computador e Android)**: ícone de instalar na barra de endereço, ou o botão **Instalar** do próprio Pauta (no alto da tela de entrada e em **Configurações > Instalar como aplicativo**). Quando o navegador não oferece o botão (numa janela anônima, por exemplo), a tela de entrada mostra essa dica no lugar dele.
 - **iPhone / iPad (Safari)**: **Compartilhar > Adicionar à Tela de Início** (a tela de entrada mostra esse passo a passo no alto). Instalar também protege seus dados (veja abaixo).
 
 ## Seus dados e privacidade

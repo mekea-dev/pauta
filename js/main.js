@@ -317,7 +317,7 @@ setInterval(() => {
 
 // instalar como app
 addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); app.installPrompt = e; app.settings.refresh(); app.account.refreshInstall(); });
-addEventListener('appinstalled', () => { app.installPrompt = null; app.settings.refresh(); app.account.refreshInstall(); toast('Pauta instalado!'); });
+addEventListener('appinstalled', () => { app.installPrompt = null; app.installed = true; app.settings.refresh(); app.account.refreshInstall(); toast('Pauta instalado!'); });
 
 // sincronização entre aparelhos (só com conta)
 if (app.cloud) {
