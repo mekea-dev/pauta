@@ -1,6 +1,15 @@
 # Histórico de versões
 
-As versões 1.0.0 a 1.4.1 foram feitas e publicadas em 06/11/2026; a 1.5.0, em 09/11/2026. A versão fica em `js/config.js` (`APP_VERSION`) e em `sw.js` (`VERSION`).
+As versões 1.0.0 a 1.4.1 foram feitas e publicadas em 06/11/2026; a 1.5.0 e a 1.6.0, em 09/11/2026. A versão fica em `js/config.js` (`APP_VERSION`) e em `sw.js` (`VERSION`).
+
+## 1.6.0
+
+- **Entender a fala com IA (opcional, desligada por padrão)**: em **Configurações > Entender a fala com IA**, cada aparelho escolhe. Ligada, a frase falada (só o texto) vai ao serviço do Pauta na Cloudflare, que pede a uma IA (Workers AI, Llama 3.3 70B) para reescrevê-la como tarefa: título limpo, dia, hora, lembrete, prioridade, etiqueta, repetição, correções ("às 16, não, às 17"). Vale para o microfone do app e para o ditado do teclado (iPhone); texto digitado nunca vai. O serviço não guarda nem registra a frase.
+- A resposta da IA não é aceita às cegas: passa pelo mesmo analisador das frases digitadas; o que ela inventou (um dia ou hora que você não disse) é descartado, o que você disse e ela deixou cair volta, e a dúvida dela abre a janela **Nova tarefa**. Se a IA falhar (sem internet, sem login, limite do dia, serviço fora do ar, demora), o app avisa e usa as regras do aparelho.
+- Botão **Testar a IA** nas Configurações: mostra como a IA entendeu uma frase de exemplo, ou o motivo de não ter dado.
+- Serviço da Cloudflare: nova rota `POST /interpretar` (confere o login do Firebase com as chaves públicas do Google, limita 40 pedidos por hora e 150 por dia por pessoa), tabela `ia_uso` (só contadores), `/health` informa `"ia"`; precisa do binding `AI` (Workers AI). Guia em `docs/LEMBRETES.md`.
+- Corrigido no analisador de frases: o texto de um item reconhecido (como "às 15:00") podia engolir os itens vizinhos já recortados ("!alta #etiqueta").
+- Testes: 290 -> 320 (novos: `ai`, login do Firebase com chave RSA de verdade, limites, resposta da IA).
 
 ## 1.5.0
 

@@ -46,7 +46,18 @@ O app não escreve a frase como foi dita: ele entende o que você quis. Tira o "
 Se tudo ficou claro, a tarefa é criada direto. Isso é feito por regras no próprio aparelho, não por inteligência artificial: frases muito soltas ou longas podem fugir do que ele entende, e nesse caso você cai na janela **Nova tarefa** em vez de ficar com uma tarefa errada.
 
 - Funciona no Chrome e no Edge (computador e Android) e no Safari (em aba comum). **Não funciona no Firefox** e, até onde se sabe, **nem no app da Tela de Início do iPhone** (a Apple diz que o reconhecimento de voz do navegador não está disponível nesse modo). Mesmo assim o Pauta **tenta**: se o seu iPhone liberar, o microfone do app funciona; se recusar, o app avisa, passa para o **microfone do teclado** (o ditado do iPhone) e não insiste por 7 dias, a menos que você toque em **Tentar o microfone do app de novo**. Com o microfone do teclado, fale, confira a pré-visualização e toque em **Adicionar**: o app entende a frase falada do mesmo jeito (e abre a janela **Nova tarefa** se algo ficar em dúvida).
-- O reconhecimento de voz é do próprio navegador (o Chrome envia o áudio para o Google). O Pauta não grava nem guarda o áudio, e a interpretação da frase acontece no aparelho: **o texto falado não é enviado a nenhum serviço do Pauta**.
+- O reconhecimento de voz é do próprio navegador (o Chrome envia o áudio para o Google). O Pauta não grava nem guarda o áudio. A interpretação da frase acontece no aparelho, **a não ser que você ligue a IA** (próxima seção): só nesse caso o texto falado vai ao serviço do Pauta.
+
+### Entender a fala com IA (opcional, desligada por padrão)
+
+As regras do aparelho entendem bem a maior parte das frases, mas frases muito soltas ("ah então, tipo, lembra de ligar pro seu José, o do financeiro, na quinta de manhã, umas nove horas por aí") pedem mais. Para isso há uma IA opcional, como o ditado do Claude ou as legendas do Meet: ela reescreve a frase como uma tarefa bem escrita.
+
+- **Como ligar**: **Configurações > Entender a fala com IA > Usar a IA neste aparelho** (vale só para aquele aparelho, e precisa de conta e de internet). Toque em **Testar a IA** para conferir: mostra como a IA entendeu uma frase de exemplo ou por que não deu.
+- **O que sai do aparelho quando está ligada**: a frase falada (**só o texto**), a data de hoje, a hora de agora e o token do seu login (para o serviço saber que é você). Vai ao serviço do Pauta na Cloudflare e dele a uma IA da própria Cloudflare (Workers AI, modelo Llama 3.3 de 70 bilhões de parâmetros). **O serviço não guarda nem registra a frase**: o banco só tem um contador de pedidos por pessoa. Texto **digitado** nunca vai. Desligada, nada do que você fala sai do aparelho.
+- **Quando é usada**: ao terminar de falar no microfone do app e também no texto ditado pelo teclado (iPhone) quando você toca em **Adicionar**.
+- **Ela não manda sozinha**: a linha que a IA devolve passa pelo mesmo analisador de frases digitadas. O que a IA inventou (um dia ou hora que você não disse) é descartado; o que você disse e ela deixou cair volta; se ela apontar dúvida (por exemplo, não achou a tarefa), abre a janela **Nova tarefa**, como já acontece com as regras.
+- **Se falhar** (sem internet, sem login, limite do dia, serviço fora do ar ou demora), o app avisa ("Usei o jeito normal") e entende a frase pelas regras do aparelho. A IA nunca é necessária.
+- **Custo**: zero dentro do limite gratuito da Cloudflare (10.000 "neurons" por dia no Workers AI). Uma frase gasta algo perto de 40 neurons (estimativa, ainda não medida: a conta inclui as instruções e os exemplos enviados junto): cerca de 240 frases por dia no plano gratuito. Passou do limite, o plano gratuito não cobra: a IA para de responder até o dia seguinte (21h no horário de Brasília) e o app usa as regras. Cada pessoa tem ainda um limite próprio de 40 pedidos por hora e 150 por dia, para conter abuso.
 
 ## Como os avisos funcionam (e o que sai do seu aparelho)
 
@@ -76,13 +87,24 @@ Você precisa de uma conta gratuita na [Cloudflare](https://dash.cloudflare.com/
 
 Para desinstalar: apague o Worker e o banco D1 no painel da Cloudflare e deixe `workerUrl` vazio.
 
+### Ligar a IA no serviço (opcional, uns 3 minutos)
+
+Só é preciso se você quer a IA de entender a fala (seção Voz). O código do passo 2 acima já traz a IA; falta dar a ela o recurso da Cloudflare:
+
+1. No Worker: **Settings**, **Bindings**, **Add binding**, **Workers AI**. Em *Variable name* escreva exatamente `AI` e confirme. (Mudar bindings cria uma nova implantação sozinha.)
+2. Teste: abra `https://pauta-lembretes.SEU-USUARIO.workers.dev/health`. Deve aparecer `"ia":true`.
+3. Opcional, em **Settings**, **Variables**: `AI_MODEL` troca o modelo (lista em <https://developers.cloudflare.com/workers-ai/models/>; o padrão é `@cf/meta/llama-3.3-70b-instruct-fp8-fast`; `@cf/meta/llama-3.1-8b-instruct-fp8-fast` é cerca de 6 vezes mais barato, com menos qualidade). `FIREBASE_PROJECT_ID` só se o seu Firebase não for o `pauta-familia`.
+4. No Pauta, em cada aparelho: **Configurações > Entender a fala com IA**, ligue e toque em **Testar a IA**.
+
+O serviço confere o token do login do Firebase com as chaves públicas do Google, então só quem está logado no Pauta consegue usar a IA. Para ver recusas da IA: **Observability**, **Logs**, procure `ia recusou` (o log traz só o motivo, nunca a frase).
+
 ## Limites e cuidados
 
 - O horário do aviso tem a precisão de **1 minuto** (é o intervalo do relógio do serviço): o aviso de 15:45 chega entre 15:45 e 15:46.
 - O plano gratuito da Cloudflare comporta de sobra uso pessoal ou de família: o relógio de 1 minuto usa 1.440 execuções por dia (o limite é 100 mil). O serviço avisa até 40 aparelhos por minuto e guarda até 100 lembretes por aparelho, de até 60 dias à frente.
 - Se você concluir ou apagar uma tarefa em **outro** aparelho, este aparelho só fica sabendo quando o app abrir e sincronizar; até lá, com o app fechado, o aviso pode tocar mesmo assim.
 - Os modos "Não perturbe" e "Foco" do celular silenciam as notificações, como em qualquer app.
-- O serviço não tem login: qualquer pessoa que descubra o endereço consegue cadastrar um endereço de aviso nele. Cada aparelho tem uma "senha" própria (que só ele e o serviço de aviso conhecem) e só ela permite mudar ou apagar a lista daquele aparelho; o pior que um estranho consegue é ocupar espaço. O serviço só aceita endereços de aviso do Google, da Apple, do Mozilla e da Microsoft.
+- Os avisos não exigem login: qualquer pessoa que descubra o endereço consegue cadastrar um endereço de aviso no serviço. Cada aparelho tem uma "senha" própria (que só ele e o serviço de aviso conhecem) e só ela permite mudar ou apagar a lista daquele aparelho; o pior que um estranho consegue é ocupar espaço. O serviço só aceita endereços de aviso do Google, da Apple, do Mozilla e da Microsoft. Já a IA **exige o login do Pauta** (token do Firebase conferido no serviço) e tem limite por pessoa. Como o cadastro no Pauta é aberto, alguém que crie várias contas poderia gastar o limite diário gratuito da IA: o efeito é só a IA parar até o dia seguinte (o app volta às regras), sem cobrança.
 - Não testado em todos os aparelhos: o fluxo foi conferido com testes automáticos e simulações. Use o botão **Testar com o app fechado** em cada aparelho para ter certeza.
 
 ## Problemas comuns
@@ -92,3 +114,7 @@ Para desinstalar: apague o Worker e o banco D1 no painel da Cloudflare e deixe `
 - **O aviso com o app fechado não chega, mesmo ligado**: no painel da Cloudflare, abra o Worker, **Observability**, **Logs**, e procure por `push recusado`. A linha diz qual serviço (Apple, Google...) recusou e com que código (por exemplo, 400, 401 ou 403 indicam que o serviço não aceitou a assinatura; 429 e 5xx são falhas passageiras). Cada aviso é tentado até 6 vezes.
 - **Chega um aviso "Você tem um lembrete"** em vez do título: a lista guardada no aparelho estava desatualizada (por exemplo, o aparelho ficou dias sem abrir o app). Abra o Pauta para atualizar.
 - **No iPhone, o botão do microfone avisa que não está disponível e leva ao campo de texto**: é o esperado no app da Tela de Início (veja Voz, acima). Use o microfone do teclado. Para o app tentar de novo, toque em "Tentar o microfone do app de novo".
+- **"Testar a IA" diz "Entre na sua conta"**: a IA precisa do login. Entre de novo (a sessão pode ter vencido).
+- **"Testar a IA" diz "indisponível"**: o limite gratuito do dia da Cloudflare acabou, ou o recurso Workers AI não está ligado no serviço (confira `"ia":true` em `/health`) ou a Cloudflare está com problema. O app continua funcionando com as regras.
+- **"Testar a IA" diz "usou a IA demais"**: passou de 40 pedidos na hora ou 150 no dia; espere um pouco.
+- **A IA "não faz nada" ao falar**: ela só atua no texto que veio da fala (microfone ou ditado do teclado). Texto digitado vai direto para as regras.

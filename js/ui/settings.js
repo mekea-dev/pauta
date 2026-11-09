@@ -1,4 +1,5 @@
 // Configurações: tema, semana, etiquetas, backup/importação, instalação e atalhos.
+import { describeAiFailure } from '../ai.js';
 import { APP_NAME, APP_VERSION } from '../config.js';
 import { formatStamp } from '../dates.js';
 import { backupFileName, exportJSON, mergeState, parseImport, toCSV } from '../io.js';
@@ -30,7 +31,9 @@ export function createSettings(app) {
   dlg.addEventListener('click', (e) => { if (e.target === dlg && downOnBackdrop) dlg.close(); });
   let alertsBusy = false;
   let alertsStatus = null; // { text, bad } resultado da última ação na seção de avisos
-  dlg.addEventListener('close', () => { paletteFor = null; status = null; alertsStatus = null; });
+  let aiBusy = false;
+  let aiStatus = null; // { text, bad } resultado do último teste da IA
+  dlg.addEventListener('close', () => { paletteFor = null; status = null; alertsStatus = null; aiStatus = null; });
   app.alerts.onChange(() => { if (dlg.open) render(); });
 
   const say = (text, bad = false) => { status = { text, bad }; render(); };
@@ -116,6 +119,42 @@ export function createSettings(app) {
       buttons.length ? h('div', { class: 'btn-row' }, buttons) : null,
       alertsStatus ? h('p', { class: `status${alertsStatus.bad ? ' bad' : ''}`, role: 'status' }, alertsStatus.text) : null,
       h('p', { class: 'muted' }, 'O serviço que dá o aviso com o app fechado só recebe o horário dos lembretes, nunca o título ou o conteúdo das suas tarefas.'));
+  }
+
+  // ---------- entender a fala com IA ----------
+  /** Manda uma frase de exemplo à IA e mostra o que ela entendeu (ou por que não deu): serve para conferir login, serviço e limite. */
+  async function testAi() {
+    if (aiBusy) return;
+    aiBusy = true;
+    aiStatus = null;
+    render();
+    const r = await app.ai.rewrite('lembra de ligar pro dentista amanhã às três da tarde', { today: store.today(), now: new Date() });
+    aiStatus = r.ok
+      ? { text: `Funcionou. A IA entendeu a frase de teste como: “${r.texto || '(nada)'}”.` }
+      : { text: `Não funcionou: ${describeAiFailure(r.reason)}`, bad: true };
+    aiBusy = false;
+    render();
+  }
+
+  function aiSection() {
+    const s = app.ai.status();
+    const usable = s.configured && s.loggedIn;
+    const toggle = h('input', {
+      class: 'switch', type: 'checkbox', role: 'switch', checked: s.on, disabled: !usable && !s.on, 'aria-label': 'Usar a IA para entender a fala neste aparelho',
+      onchange: (e) => { app.ai.setOn(e.target.checked); aiStatus = null; render(); },
+    });
+    let note = null;
+    if (!s.configured) note = 'O serviço da IA não está configurado neste app (veja docs/LEMBRETES.md).';
+    else if (!s.loggedIn) note = 'Entre na sua conta para poder usar a IA: é o login que mostra ao serviço que é você.';
+    else if (s.on && !s.online) note = 'Sem internet agora: sem a IA, o app entende a fala com as regras do aparelho.';
+    return h('section', { class: 'st-section', id: 'st-ia' },
+      h('h3', {}, 'Entender a fala com IA'),
+      h('p', { class: 'muted' }, 'Ao falar uma tarefa, o Pauta já entende a frase sozinho, por regras, aqui no aparelho. Com a IA ligada, a frase falada (só o texto) é enviada ao serviço do Pauta na Cloudflare, que usa uma IA para reescrevê-la como tarefa: título limpo, dia, hora, lembrete. O serviço não guarda a frase. Desligada, nada do que você fala sai do aparelho.'),
+      h('label', { class: 'st-row switch-row' }, h('span', {}, 'Usar a IA neste aparelho'), toggle),
+      note ? h('p', { class: 'muted' }, note) : null,
+      s.on && usable ? h('div', { class: 'btn-row' }, h('button', { class: 'btn btn-sm', type: 'button', disabled: aiBusy, onclick: testAi }, icon('check', 15), aiBusy ? 'Testando…' : 'Testar a IA')) : null,
+      aiStatus ? h('p', { class: `status${aiStatus.bad ? ' bad' : ''}`, role: 'status' }, aiStatus.text) : null,
+      h('p', { class: 'muted' }, 'Se a IA falhar (sem internet, limite grátis do dia, serviço fora do ar), o app avisa e usa as regras do aparelho: a IA nunca é necessária.'));
   }
 
   function labelRow(l, n) {
@@ -272,7 +311,7 @@ export function createSettings(app) {
         h('h2', { id: 'st-title', class: 'dialog-title' }, 'Configurações'),
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fechar', onclick: () => dlg.close() }, icon('x', 20))),
       h('div', { class: 'settings-scroll' },
-        app.account.section(), prefsSection(settings), alertsSection(), labelsSection(labels, c), dataSection(settings), installSection(), shortcutsSection(),
+        app.account.section(), prefsSection(settings), alertsSection(), aiSection(), labelsSection(labels, c), dataSection(settings), installSection(), shortcutsSection(),
         h('p', { class: 'about muted' }, `${APP_NAME} v${APP_VERSION} · feito para rodar no GitHub Pages, sem servidor e sem rastreamento.`))));
     dlg.querySelector('.settings-scroll').scrollTop = top;
   }

@@ -89,10 +89,11 @@ export function parseQuickAdd(input, { today = todayISO(), weekStart = 1, ignore
   const tokens = [];
   const res = { title: '', date: null, time: null, priority: null, labels: [], recurrence: null, remind: null, tokens };
 
-  // Recorta o trecho casado (sem o espaço inicial) e devolve o texto original dele.
+  // Recorta o trecho casado (sem o espaço inicial nem o final) e devolve o texto original dele. O espaço do fim fica de fora porque pode
+  // ser o "buraco" de um trecho já recortado ("às 15:00 !alta": o !alta virou espaço); senão o texto do horário engoliria o !alta.
   const cut = (m) => {
     const start = m.index + m[1].length;
-    const end = m.index + m[0].length;
+    const end = m.index + m[0].trimEnd().length;
     cuts.push([start, end]);
     f = f.slice(0, start) + ' '.repeat(end - start) + f.slice(end);
     return text.slice(start, end).trim();

@@ -26,7 +26,7 @@
   <ol id="out"></ol>
   <script type="module">
     import { run } from './shim/runner.js';
-    const arquivos = ['dates', 'recurrence', 'parser', 'voice', 'reminders', 'speech', 'push', 'alerts', 'sw', 'worker', 'model', 'query', 'store', 'merge', 'cloud', 'io', 'site'];
+    const arquivos = ['dates', 'recurrence', 'parser', 'voice', 'reminders', 'speech', 'ai', 'push', 'alerts', 'sw', 'worker', 'model', 'query', 'store', 'merge', 'cloud', 'io', 'site'];
     try {
       for (const a of arquivos) await import(`./${a}.test.js`);
     } catch (e) {

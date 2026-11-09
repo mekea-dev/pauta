@@ -2,6 +2,9 @@
 // Também aceita fala: o microfone (ou o ditado do teclado do iPhone) escreve o pedido e o app cria a tarefa. O microfone ouve até a
 // pessoa tocar nele de novo (ou apertar Enter). Se a fala não ficou clara (sem título, hora que não deu para entender...), o app não
 // chuta: abre o editor com o que entendeu já preenchido e o resto em branco (js/ui/editor.js, openDraft).
+// Com "Entender a fala com IA" ligada nas Configurações, o texto falado passa antes por uma IA que o reescreve (js/ai.js); sem ela, ou se ela
+// falhar, valem as regras do aparelho (js/voice.js).
+import { describeAiFailure, reconcile } from '../ai.js';
 import { WEEKDAYS_SHORT, capitalize, diffDays, relativeDay, weekday } from '../dates.js';
 import { priorityLabel } from '../model.js';
 import { parseQuickAdd } from '../parser.js';
@@ -12,6 +15,7 @@ import { fold } from '../text.js';
 import { capitalizeTitle, interpretSpoken } from '../voice.js';
 import { clip, h } from './dom.js';
 import { icon } from './icons.js';
+import { toast } from './overlay.js';
 
 const EXAMPLES = [
   'Pagar boleto amanhã 10h !alta #contas',
@@ -33,7 +37,19 @@ export function createComposer(app) {
   let ctx = { date: null, labelId: null, priority: 0, hidden: false };
   // o texto do campo veio da fala (ou vai vir do ditado do teclado): lê como pedido falado ("crie uma tarefa... com prazo para dia 10")
   let spoken = false;
+  // IA (opcional): a linha do campo passa a ser a reescrita dela; `aiExtra` guarda o que foi dito de verdade e as dúvidas que ela apontou
+  let aiExtra = null; // { heard, doubts }
+  let aiRead = false; // a IA já leu o texto que está no campo (não pede de novo)
+  let waiting = null; // o texto que está esperando a resposta da IA
   let placeholder = `Nova tarefa… ex.: ${EXAMPLES[0]}`;
+
+  /** O texto do campo mudou por conta da pessoa (ou foi limpo): a leitura da IA, se havia, não vale mais. */
+  const forgetAi = () => {
+    aiExtra = null;
+    aiRead = false;
+    waiting = null;
+    if (addBtn) addBtn.disabled = false;
+  };
 
   const input = h('input', {
     class: 'composer-input', type: 'text', maxlength: 300, autocomplete: 'off', enterkeyhint: 'done',
@@ -42,6 +58,7 @@ export function createComposer(app) {
     oninput: () => {
       if (speech.listening) speech.cancel(); // a pessoa começou a digitar: o microfone sai da frente e fica o texto dela
       if (!input.value) spoken = false;
+      forgetAi();
       clearNote();
       update();
     },
@@ -50,7 +67,7 @@ export function createComposer(app) {
     onkeydown: (e) => {
       if (e.key !== 'Escape') return;
       speech.cancel();
-      if (input.value) { input.value = ''; ignore = {}; spoken = false; clearNote(); update(); } else input.blur();
+      if (input.value) { input.value = ''; ignore = {}; spoken = false; forgetAi(); clearNote(); update(); } else input.blur();
     },
   });
   const micBtn = h('button', {
@@ -122,6 +139,7 @@ export function createComposer(app) {
     input.value = '';
     ignore = {};
     spoken = true;
+    forgetAi();
     const started = speech.start({
       lang: 'pt-BR',
       onInterim: (text) => { input.value = text; update(); },
@@ -163,6 +181,7 @@ export function createComposer(app) {
     input.value = '';
     ignore = {};
     spoken = false;
+    forgetAi();
     clearNote();
     update();
     app.editor.openDraft(fields, { heard: p.heard, issues: p.issues });
@@ -187,8 +206,16 @@ export function createComposer(app) {
   // ---------- o que foi entendido ----------
   function parse({ confidence = null } = {}) {
     const opts = { today: store.today(), weekStart: store.state.settings.weekStart, ignore };
-    // texto falado: além de ler, diz o que ficou em dúvida (`issues`); texto digitado é lido do jeito de sempre
-    return spoken ? interpretSpoken(input.value, { ...opts, now: new Date(), confidence, defaultDate: ctx.date }) : parseQuickAdd(input.value, opts);
+    if (!spoken) return parseQuickAdd(input.value, opts); // texto digitado é lido do jeito de sempre
+    // texto falado: além de ler, diz o que ficou em dúvida (`issues`)
+    const p = interpretSpoken(input.value, { ...opts, now: new Date(), confidence, defaultDate: ctx.date });
+    if (aiExtra) { // a linha do campo é a reescrita da IA: no rascunho aparece o que a pessoa disse, e as dúvidas da IA entram junto
+      p.heard = aiExtra.heard;
+      const titleIssue = p.issues.some((i) => i.code === 'no-title' || i.code === 'vague-title'); // já dito pelas regras: não repete
+      for (const text of aiExtra.doubts) if (!(titleIssue && /t[ií]tulo|tarefa/i.test(text))) p.issues.push({ code: 'ai', text });
+      p.clear = p.issues.length === 0;
+    }
+    return p;
   }
 
   function dateText(date, today) {
@@ -228,8 +255,42 @@ export function createComposer(app) {
     showHint();
   }
 
-  function submit({ byVoice = false, confidence = null } = {}) {
+  /**
+   * Pede à IA (se estiver ligada e disponível) que reescreva o texto falado e põe a reescrita no campo.
+   * Devolve false se a pessoa mexeu no campo enquanto esperava (aí não se faz mais nada com a resposta).
+   */
+  async function understandWithAi() {
+    const heard = input.value;
+    waiting = heard;
+    addBtn.disabled = true;
+    showNote('Entendendo com IA…', 'ai'); // o tipo "ai" (e não "listening") para o fim do microfone não apagar o recado
+    const today = store.today();
+    const now = new Date();
+    const weekStart = store.state.settings.weekStart;
+    const local = interpretSpoken(heard, { today, now, weekStart, ignore });
+    const r = await app.ai.rewrite(heard, { today, now });
+    if (input.value !== heard) return false; // a pessoa digitou, limpou ou falou de novo: esta resposta ficou velha
+    waiting = null;
+    addBtn.disabled = false;
+    if (note.dataset.kind === 'ai') clearNote();
+    aiRead = true;
+    if (r.ok) {
+      aiExtra = { heard, doubts: r.duvidas };
+      input.value = reconcile(r.texto, heard, local, { today, now, weekStart });
+    } else {
+      toast(`${describeAiFailure(r.reason)} Usei o jeito normal.`);
+    }
+    return true;
+  }
+
+  async function submit({ byVoice = false, confidence = null } = {}) {
     speech.cancel();
+    if (waiting !== null && waiting === input.value) return; // o mesmo texto já está esperando a IA
+    if (spoken && input.value.trim() && !aiRead && app.ai.available() && !(await understandWithAi())) return;
+    finishSubmit({ byVoice, confidence });
+  }
+
+  function finishSubmit({ byVoice = false, confidence = null } = {}) {
     const p = parse({ confidence });
     // falado e em dúvida: não adivinha, abre o editor para a pessoa conferir e completar
     if (spoken && input.value.trim() && p.issues?.length) {
@@ -255,6 +316,7 @@ export function createComposer(app) {
     input.value = '';
     ignore = {};
     spoken = false;
+    forgetAi();
     clearNote();
     update();
     if (byVoice) app.actions.addedByVoice(task, { remindLost });

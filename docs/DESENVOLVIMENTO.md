@@ -2,7 +2,7 @@
 
 Este guia existe para você (ou um assistente, como o Claude Code) retomar o Pauta em outro computador **sem depender da conversa em que ele foi feito**. Ele diz onde as coisas estão, como rodar e testar, o que já foi feito e verificado, o que falta, o que foi decidido e por quê, e as armadilhas que já apareceram.
 
-Última atualização: 09/11/2026, versão **1.5.0**. O histórico de versões está em [CHANGELOG.md](../CHANGELOG.md). As instruções curtas para o Claude Code estão em [CLAUDE.md](../CLAUDE.md).
+Última atualização: 09/11/2026, versão **1.6.0**. O histórico de versões está em [CHANGELOG.md](../CHANGELOG.md). As instruções curtas para o Claude Code estão em [CLAUDE.md](../CLAUDE.md).
 
 ## Primeiros passos em outro computador
 
@@ -10,7 +10,7 @@ Este guia existe para você (ou um assistente, como o Claude Code) retomar o Pau
 2. Suba um servidor local (módulos JavaScript e service worker não funcionam abrindo o arquivo com duplo clique):
    - Windows, sem instalar nada: `powershell -NoProfile -ExecutionPolicy Bypass -File .\servir.ps1` (abre em `http://localhost:8789/`).
    - Qualquer sistema com Python: `python -m http.server 8789`.
-3. Abra `http://localhost:8789/tests/`. Deve aparecer **OK** com todos os testes (290 em 09/11/2026). Com Node 18 ou mais novo: `node --test` (o GitHub Actions usa o Node 22).
+3. Abra `http://localhost:8789/tests/`. Deve aparecer **OK** com todos os testes (320 em 09/11/2026). Com Node 18 ou mais novo: `node --test` (o GitHub Actions usa o Node 22).
 4. Para testar login e sincronização **sem tocar no Firebase real**: `python scripts/emulador-nuvem.py --porta 8790` e abra `http://localhost:8790/`. O código de convite do emulador é `FAMILIA2026`. As contas ficam só na memória dele e somem quando ele é reiniciado.
 5. Com o Claude Code: abra a pasta do repositório (ele lê o `CLAUDE.md` sozinho) e peça para ler este guia primeiro.
 
@@ -28,7 +28,8 @@ Endereços: site em <https://mekea-dev.github.io/pauta/> (GitHub Pages, ramo `ma
 | `css/app.css` | todos os estilos; tema claro e escuro por variáveis no começo |
 | `sw.js` | service worker: modo offline (rede primeiro), notificações dos lembretes (`push`, `notificationclick`) e leitura do espelho de avisos |
 | `manifest.webmanifest` | instalação como app (PWA) |
-| `worker/lembretes.js` | **serviço de lembretes** (Cloudflare Worker). Não faz parte do site: é colado no painel da Cloudflare |
+| `worker/lembretes.js` | **serviço de lembretes e da IA da fala** (Cloudflare Worker). Não faz parte do site: é colado no painel da Cloudflare |
+| `js/ai.js` | IA opcional da fala: `createAi` (pedido ao serviço com o token do login, motivos de falha, timeout) e `reconcile` (junta a linha da IA com o que as regras entenderam) |
 | `js/config.js` | nome, **versão** (`APP_VERSION`) e chaves de armazenamento |
 | `js/dates.js` | datas como texto `AAAA-MM-DD` (sem fuso), nomes e formatos em português; `minuteChoices` (minutos de 5 em 5 da escolha da hora) |
 | `js/text.js` | `fold` (minúsculas, sem acento, mesmo tamanho) e ajudantes de plural |
@@ -54,7 +55,7 @@ Endereços: site em <https://mekea-dev.github.io/pauta/> (GitHub Pages, ramo `ma
 | `tests/` | testes (Node e navegador); `tests/shim/` faz o `node:test` funcionar no navegador |
 | `docs/` | guias (`NUVEM.md`, `LEMBRETES.md`, este), regras do banco (`regras-banco*.json`) e imagens do README |
 
-### Testes (290 em 09/11/2026)
+### Testes (320 em 09/11/2026)
 
 `dates`, `recurrence`, `parser`, `voice` (frases faladas: limpeza, correções, o que fica claro e o que vira dúvida), `reminders` (contas), `speech` (microfone, com um reconhecedor de mentira que o teste "faz falar"), `push` (inscrição), `alerts` (motor), `sw` (o `sw.js` roda dentro de um navegador de mentira: `push` e `notificationclick`), `worker` (o serviço, inclusive a assinatura VAPID), `model`, `query`, `store`, `merge`, `cloud` (Firebase de mentira), `io` e `site` (consistência do pacote do site).
 
@@ -147,11 +148,12 @@ Limites do plano gratuito que moldaram o código: 10 ms de CPU e 50 chamadas ext
 
 | Chamada | Corpo | Resposta |
 |---|---|---|
+| `POST /interpretar` | `Authorization: Bearer <token do Firebase>`; `{ fala, hoje, agora }` | `{ texto, duvidas }`; 401 login, 429 limite, 503 IA indisponível, 502 resposta inválida (veja "IA opcional") |
 | `GET /vapid` | - | `{ publicKey }` (base64 de URL, 65 bytes) |
 | `POST /subscribe` | `{ endpoint, auth }` (ou `keys.auth`) | `{ ok }`; 400 se o endereço não for do Google, Apple, Mozilla ou Microsoft; 403 se o endereço já existe com outra senha |
 | `PUT /reminders` | `{ endpoint, auth, reminders: [{ id, at }] }` | troca a lista do aparelho; aceita `at` de 1 h atrás até 60 dias à frente, até 100 avisos; 403 com senha errada |
 | `DELETE /subscription` | `{ endpoint, auth }` | apaga o aparelho |
-| `GET /` ou `/health` | - | `{ ok: true, ... }` |
+| `GET /` ou `/health` | - | `{ ok: true, ..., ia }` (`ia`: o recurso Workers AI está ligado) |
 
 O `auth` é a chave da inscrição push (só o aparelho e o serviço de aviso a conhecem); o serviço guarda só o hash dela. A cada minuto (`scheduled`): pega até 40 aparelhos com aviso vencido, envia o toque (`Authorization: vapid t=..., k=...`, `TTL: 3600`, `Urgency: high`); 2xx apaga os avisos vencidos; 404 ou 410 apaga o aparelho; outro código soma uma tentativa (6 no máximo) e registra `push recusado` no log. Uma vez por hora (minuto 0) apaga avisos com mais de 2 dias ou sem tentativas restantes e aparelhos sem avisos há mais de 90 dias.
 
@@ -178,6 +180,18 @@ Duas camadas, **ambas por regras no aparelho (nenhum texto sai)**:
 
 **Cuidado central**: não comer títulos legítimos. "Criar relatório mensal", "Agendar dentista", "Tarefa de casa", "Salão de beleza", "Deixar tudo pronto", "Preciso de ajuda com o relatório" ficam como estão (há testes para isso); só se tira o pedido quando ele é inequívoco. Ao mexer nas regras, rode também a lista de títulos comuns em `tests/voice.test.js`.
 
+### IA opcional (`js/ai.js`, `js/ui/composer.js` e a rota `POST /interpretar` do Worker)
+
+**Aprovada pelo dono em 09/11/2026** porque o **texto falado sai do aparelho** (hoje só horários saem, e só para o serviço de lembretes). **Desligada por padrão**, escolha **por aparelho** (`pauta:ia` no localStorage, `'on'` ou `'off'`), em Configurações, "Entender a fala com IA" (com o botão **Testar a IA**).
+
+**Fluxo no app** (`composer.submit`): se o texto do campo veio da fala (`spoken`: microfone ou ditado do teclado) e a IA está disponível (`app.ai.available()`: ligada, com `workerUrl` https, conta logada e internet), `understandWithAi` manda a frase a `app.ai.rewrite` (9 s no máximo), mostra "Entendendo com IA..." e põe no campo a linha reconciliada; depois o caminho é o de sempre (`finishSubmit`: cria direto se `clear`, ou abre o rascunho). Texto **digitado** nunca passa pela IA. Se a pessoa mexer no campo, apertar Esc ou falar de novo enquanto espera, a resposta é descartada (`waiting`, `forgetAi`). Falha (`describeAiFailure`: `login`, `offline`, `limit`, `unavailable`, `timeout`, `error`) vira um aviso e vale `interpretSpoken` do jeito de sempre. `aiExtra` guarda o que foi dito de verdade (aparece no rascunho como "Você disse") e as dúvidas da IA (que não repetem "não entendi o título" quando as regras já disseram).
+
+**A IA é só um "reescritor"**: pede-se a ela UMA linha na sintaxe do adicionar rápido ("Pagar o boleto dia 10 às 16:00 !alta #contas me avise 30 minutos antes") mais uma lista `duvidas`; quem calcula datas e valida tudo é o parser de sempre (LLM erra conta de calendário). `reconcile(aiText, heard, local)` junta com o que as regras entenderam: **tira o que a IA inventou** (um item do parser sem nenhum sinal na fala, por `EVIDENCE`, que é largo de propósito), **devolve o que a fala tinha e a IA deixou cair**, e, se os dois divergem, vale a IA. Depende de `tokens[].text` do parser guardar só o texto do próprio item (foi corrigido na 1.6.0: antes o texto de "às 15:00" engolia o "!alta #etiqueta" vizinhos).
+
+**Worker** (`worker/lembretes.js`): `POST /interpretar` com `Authorization: Bearer <idToken do Firebase>` e corpo `{ fala, hoje, agora }` (só isso): confere o token (`verifyFirebaseToken`: RS256 com as chaves públicas do Google em cache de 6 h, `aud`/`iss` = projeto `pauta-familia` (variável `FIREBASE_PROJECT_ID` troca), validade); limita por pessoa no D1 (`ia_uso`: 40 por hora e 150 por dia, **inclusive os recusados**); monta as mensagens (`buildMessages`: instruções + 9 exemplos como conversa + a frase em JSON); chama `env.AI.run` (modelo `AI_MODEL`, padrão Llama 3.3 70B fp8 fast, `temperature` 0.1, modo JSON nos modelos que aceitam); trata a resposta como **não confiável** (`cleanAiOutput`: primeiro JSON completo, uma linha, 300 caracteres, no máximo 3 dúvidas). Respostas: 200 `{ texto, duvidas }`; 400 frase vazia; 401 login inválido ou vencido; 413; 429 limite; 502 resposta inválida; 503 `ia_indisponivel` (sem o binding, limite grátis do dia, erro ou demora). **A frase não é guardada nem escrita em log** (o log traz só o motivo, "ia recusou: ...").
+
+**O prompt foi testado** no AI Playground público da Cloudflare (<https://playground.ai.cloudflare.com>, sem usar a conta do dono) com 8 frases soltas; achou e corrigiu dois defeitos: o modelo apontava "quando a tarefa deve ser feita?" em tarefas sem data (agora o prompt diz que dia, hora etc. são opcionais e há um exemplo sem data) e, numa frase com "ignore as instruções", emendava um segundo JSON (`cleanAiOutput` pega só o primeiro, e há um exemplo para esse caso).
+
 ### Criar ou abrir o rascunho (`js/ui/composer.js` e `js/ui/editor.js`)
 
 Ao terminar de falar, `finishVoice` chama `submit`: se `clear`, cria a tarefa na hora e mostra o que entendeu, com **Desfazer**; se houver dúvida, chama `app.editor.openDraft(campos, { heard, issues })`. O editor aceita um **rascunho**: uma tarefa que ainda não existe no `store`, editada só na memória com as mesmas regras (`mergePatch` + `createTask`); **Adicionar** chama `store.addTask`; fechar sem adicionar descarta com um aviso e **Desfazer** (`discardDraft`). Um lembrete pedido sem hora fica guardado em `draftInfo.wantRemind` e liga quando a hora for escolhida (a menos que a pessoa mexa no lembrete antes). O mesmo caminho vale para o ditado do teclado (campo com `spoken = true`).
@@ -191,6 +205,13 @@ Quando o app já sabe que o navegador recusou, o toque no microfone vai direto a
 
 ## O que foi verificado e o que não foi
 
+**Verificado em 09/11/2026 (versão 1.6.0, IA da fala)**
+- 320 testes automáticos no navegador: o Worker com **tokens RS256 assinados por uma chave RSA de verdade** (aceita o certo; recusa projeto errado, emissor errado, vencido, emitido no futuro, sem `sub`, algoritmo `none`/HS256, assinatura de outra chave, conteúdo trocado, lixo; chave nova do Google aprendida sem buscar a lista mais de uma vez por minuto; chaves do Google fora do ar = 503), limite por pessoa (40/h, 150/dia), resposta da IA tratada como não confiável, a frase não guardada, o cliente `js/ai.js` (todos os motivos de falha, timeout) e `reconcile`.
+- Contra o mundo real: as chaves públicas **verdadeiras** do Google foram baixadas e importadas pelo mesmo caminho do Worker (2 chaves, `max-age` de umas 6 h); o SQL do contador (`INSERT ... ON CONFLICT`, `SELECT`, faxina) rodou no SQLite 3.45.
+- Interface no navegador embutido com **resposta do serviço simulada** (um `fetch` falso só para `/interpretar`) e login no emulador: seção "Entender a fala com IA" (desligada por padrão; ligar; **Testar a IA** com sucesso, 503 e 429; o pedido sai com o token e só `fala`, `hoje` e `agora`); fala clara criando a tarefa direto pela linha da IA (título, dia, hora e lembrete); dúvida da IA abrindo o rascunho com "Você disse" original; dia, hora e prioridade inventados pela IA descartados; IA fora do ar (aviso e regras); Esc enquanto espera; ditado do teclado (modo app do iPhone) passando pela IA só quando ligada; texto digitado nunca enviado.
+- Produção (Cloudflare): código novo implantado e binding `AI` criado pelo painel; `/health` devolve `"ia":true`; `/interpretar` sem login e com token falso = 401; o preflight do site (`https://mekea-dev.github.io`) libera `Authorization` e o de outro site não libera nada.
+- Prompt testado com o modelo real no AI Playground público da Cloudflare (8 frases soltas; ver "IA opcional").
+
 **Verificado em 09/11/2026 (versão 1.5.0)**
 - 290 testes automáticos no navegador. (O GitHub Actions, com Node 22, roda os mesmos; conferir o resultado depois de publicar.)
 - Interface no navegador embutido do Claude Code, com um reconhecedor de voz **simulado** que a página recebe no lugar do real: gravação contínua com pausa no meio (o app religou sozinho, `starts: 2`, e juntou as duas partes), parar tocando no microfone e apertando Enter, parar sem ter falado nada ("Não ouvi nada"), digitar durante a gravação (cancela o microfone), Esc; frase clara criando a tarefa direto; frase sem título abrindo **Nova tarefa** com dia e hora preenchidos, título em branco e destacado, o que foi dito; Adicionar, Descartar e **Desfazer**; lembrete pedido sem hora ligando ao escolher a hora (e "15 minutos antes" avisando 15 min antes da hora escolhida); seletor de hora de 5 em 5 com todas as transições (minuto quebrado 16:07 -> 25, tirar a hora, escolher de novo); layout de celular (375 px) do rascunho.
@@ -201,6 +222,7 @@ Quando o app já sabe que o navegador recusou, o toque no microfone vai direto a
 - Produção: `/vapid` devolve 65 bytes; chamadas a partir de `https://mekea-dev.github.io` passam no CORS e na política de segurança; `/subscribe` e `/reminders` respondem 200, senha errada 403, endereço não permitido 400; o relógio de 1 minuto rodou e apagou um aparelho falso (o Google respondeu 404 ou 410).
 
 **NÃO verificado**
+- **A IA da fala de ponta a ponta com um token real do Firebase** (o Worker, o app e o modelo foram testados cada um por si; veja em "Pendências" o teste de uma pessoa logada), a **demora real** da IA (o playground mistura a demora dele; o app desiste em 9 s) e o **consumo real de neurons por frase** (a conta de ~40 é estimativa: ~1.200 tokens de entrada e ~50 de saída).
 - Um aviso **chegando de verdade** num aparelho (o pedido de permissão do Chrome ficou sem resposta; o iPhone nunca foi testado).
 - Reconhecimento de voz **real** (o navegador embutido bloqueia o microfone) e o que o iOS faz no modo app. Em especial na 1.5.0: se `continuous = true` e o religar automático da rodada se comportam bem no Chrome e no Safari de verdade (o iOS pode repetir um som ou o pedido de permissão a cada rodada), e que **confiança** o iPhone informa (afeta `LOW_CONFIDENCE`). As regras de `js/voice.js` foram escritas e testadas com frases que **eu escrevi**, não com transcrições reais: o mais provável de faltar é uma frase que o reconhecedor real escreve de outro jeito.
 - Os dois seletores de hora na roda do iPhone (`<select>` nativo): a lista de minutos de 5 em 5 foi conferida só no navegador do computador.
@@ -211,18 +233,19 @@ Quando o app já sabe que o navegador recusou, o toque no microfone vai direto a
 
 1. **No iPhone** (fechar e abrir o app uma vez antes): Configurações, Avisos dos lembretes, Ligar avisos, **Testar com o app fechado**. Se falhar: a própria seção mostra o motivo; olhe também os Logs do Worker.
 2. **Microfone no iPhone**: ver se o app da Tela de Início aceita o reconhecimento de voz (1.4.1) e se a gravação contínua da 1.5.0 funciona (pausas no meio da frase, parar tocando de novo no microfone). Se recusar (esperado), decidir se vale uma das opções abaixo. **Anote as frases que o app entendeu errado** (o que foi dito, o que virou): são o melhor insumo para melhorar `js/voice.js`.
+2a. **IA da fala**: em **cada aparelho**, Configurações, **Entender a fala com IA**, ligar e tocar em **Testar a IA** (confere login, serviço e limite). Depois falar frases de verdade; se a IA demorar (mais de uns 5 s) ou errar, anote a frase e o resultado para ajustar o prompt, o modelo ou o tempo (seção "A IA da fala: ajustes possíveis").
 3. **Restringir a chave de API do Firebase** por referrer (Google Cloud Console, APIs e serviços, Credenciais, chave do navegador: `https://mekea-dev.github.io/*` e `http://localhost:8789/*`). É configuração de segurança do dono da conta.
 4. Teste de aviso de ponta a ponta no computador (seção acima).
 5. Testes reais pendentes do Firebase: cadastro sem código, redefinição de senha, excluir conta, segundo aparelho. Depois, tirar do README a frase "testados com um Firebase de mentira".
 6. Cosmético: o `package.json` ainda diz `"version": "1.0.0"` (não é usado).
 
-### Opção: entender a fala com IA (Cloudflare Workers AI)
+### A IA da fala: ajustes possíveis
 
-**Não implementada; precisa da aprovação do dono** porque o **texto falado (os títulos das tarefas) sairia do aparelho** para um serviço de IA (hoje só horários saem, e só para o serviço de lembretes). Serviria para o que as regras de `js/voice.js` não alcançam: reescrever frases bem soltas ou longas como uma pessoa ("ah então, tipo, lembra de ligar pro seu José, o do financeiro, na quinta de manhã, umas nove horas por aí" -> "Ligar para o seu José do financeiro", quinta, 09:00), como o ditado do Claude ou as legendas do Meet fazem.
-- **Encaixe**: `interpretSpoken` já devolve a tarefa entendida e as dúvidas. A IA entraria **antes**, só quando as regras deixarem dúvida (ou sempre, se o dono quiser), e a resposta da IA passaria pelas mesmas conferências (`parseQuickAdd` e `clear`); sem internet ou com erro, valem as regras locais.
-- **Worker**: rota nova (`POST /interpretar`) com o mesmo cuidado do plano da transcrição abaixo (verificar o token do Firebase, limite por pessoa no D1), chamando `env.AI.run` com um modelo de texto da lista atual do Workers AI e pedindo JSON (`title`, `date`, `time`, `remind`, `priority`, `labels`, `recurrence`). Enviar também a data de hoje e o fuso. Colar o código no painel e acrescentar o binding `AI` (configuração da conta Cloudflare do dono).
-- **Custo**: o plano gratuito do Workers AI dá 10.000 neurons por dia (conferir o preço do modelo escolhido em <https://developers.cloudflare.com/workers-ai/platform/pricing/>); uma frase curta custa poucos neurons.
-- **Privacidade**: deixar **desligado por padrão**, com uma opção nas Configurações explicando que o texto falado vai à Cloudflare, e dizer isso no README e em `docs/LEMBRETES.md` (hoje eles afirmam que nada do texto sai do aparelho).
+A IA opcional está implementada (seção "IA opcional", acima). Coisas que podem ser ajustadas conforme o uso real:
+- **O prompt** (`AI_SYSTEM` e `AI_EXAMPLES` em `worker/lembretes.js`): frases que a IA entende mal viram novos exemplos (cada exemplo custa neurons em todo pedido). Há um teste que confere que todos os exemplos são JSON válido no formato certo.
+- **O modelo** (variável `AI_MODEL` no painel, sem mexer no código): `@cf/meta/llama-3.1-8b-instruct-fp8-fast` custa cerca de 6 vezes menos, com menos qualidade; modelos de raciocínio (como os `gpt-oss`) gastam mais saída e demoram mais, não são indicados aqui. Só os modelos de `JSON_MODE_MODELS` usam o "modo JSON".
+- **O tempo** (`TIMEOUT_MS` em `js/ai.js`, 9 s): se a IA demorar mais que isso no uso real, o app cai nas regras. Medir a demora real no celular antes de mexer.
+- **Chamar a IA só quando as regras deixarem dúvida** (hoje chama sempre que está ligada e a fala veio da voz): reduz custo e demora, mas perde a reescrita de títulos que as regras entendem "por baixo" (por exemplo, "Ligar pro Zé" vira "Ligar para o Zé").
 
 ### Opção: microfone de verdade no app do iPhone (transcrição na Cloudflare)
 
@@ -248,7 +271,9 @@ Quando o app já sabe que o navegador recusou, o toque no microfone vai direto a
 - **Toque sem conteúdo (Web Push)**: o iPhone não agenda notificação local e o GitHub Pages não executa código; precisava de um serviço. Mandar só o "toque" faz com que os títulos nunca saiam do aparelho.
 - **Cloudflare Worker + D1 + cron de 1 minuto**: gratuito e sem servidor para cuidar. A precisão do aviso é de 1 minuto.
 - **Microfone do navegador com reserva no teclado**: a única opção gratuita e sem enviar áudio a lugar nenhum.
-- **A fala é entendida por regras, no aparelho** (1.5.0): o dono quis que a fala "faça sentido" como no Claude ou nas legendas do Meet. Regras cobrem o que é previsível (pedido, hesitações, intenção, horas, correções) sem enviar nada para fora; a IA externa ficou como opção que exige aprovação (acima).
+- **A fala é entendida por regras, no aparelho, e a IA é opcional** (1.5.0 e 1.6.0): o dono quis que a fala "faça sentido" como no Claude ou nas legendas do Meet. As regras cobrem o que é previsível (pedido, hesitações, intenção, horas, correções) sem enviar nada para fora; a IA (Workers AI da Cloudflare, aprovada em 09/11/2026 depois de ele saber que o texto falado sai do aparelho e que não custa nada no uso dele) vem **desligada por padrão e por aparelho**, porque o cadastro é aberto e outras pessoas usam o app sem terem aceitado isso.
+- **IA como "reescritor" com conferência, não como "intérprete"** (1.6.0): a IA devolve uma linha na sintaxe do adicionar rápido e o parser de sempre calcula as datas; `reconcile` descarta o que ela inventou. Motivos: modelos erram contas de calendário, e assim a mesma validação das frases digitadas vale para a IA.
+- **Modelo padrão: Llama 3.3 70B fp8 fast** (1.6.0): melhor português que os de 8B e aceita o modo JSON; cerca de 6 vezes mais caro que o 8B fp8 fast por frase, mas ainda gratuito no uso do dono. Troca por variável (`AI_MODEL`), sem mexer no código.
 - **Quando não fica claro, não chuta, abre o rascunho** (1.5.0): pedido do dono, com a condição de "não ser retrabalho". Por isso o rascunho já vem com o que foi entendido, diz o que ficou em dúvida e guarda o pedido de lembrete até a hora ser escolhida; quando tudo fica claro, a tarefa é criada direto.
 - **Hora com minutos de 5 em 5 em duas caixas** (1.5.0): o `<input type="time" step="300">` não garante a roda de 5 em 5 no iPhone; `<select>` nativo garante. O minuto "quebrado" de uma tarefa existente continua na lista para não ser alterado sem querer.
 - **Escopo enxuto**: o dono prefere ferramentas simples e diretas, "não um Trello da vida"; extras só como oferta.
@@ -261,6 +286,8 @@ Quando o app já sabe que o navegador recusou, o toque no microfone vai direto a
 - O navegador embutido do Claude Code e o Chrome controlado por extensão **não conseguem clicar em pedidos de permissão do navegador** (notificações, microfone): isso exige uma pessoa.
 - Testes que usam relógios reais (`tests/speech.test.js`, `tests/alerts.test.js`) esperam alguns milissegundos; a suíte inteira leva uns 15 s no navegador.
 - Os testes de `tests/site.test.js` proíbem emojis e setas: para setas em texto, use `->` ou `>`.
+- **Testar a IA sem gastar a conta do dono nem precisar de token**: o AI Playground público da Cloudflare (<https://playground.ai.cloudflare.com/models?model=%40cf%2Fmeta%2Fllama-3.3-70b-instruct-fp8-fast>). Cole as instruções (`AI_SYSTEM` + exemplos) em "Instructions", **desligue as ferramentas** ("Developer Stack MCP": botão Clear) ou o modelo tenta chamar funções, e mande a frase no formato JSON do Worker. A tela às vezes mostra o texto da resposta **embaralhado** (trechos duplicados e entrelaçados); dá para decifrar, e a "verificação de segurança" deles cai de vez em quando ("Safety check unavailable": é só tentar mais tarde).
+- Para colar o Worker no painel da Cloudflare pelo Chrome: abra `http://localhost:8789/worker/lembretes.js`, `Ctrl+A`, `Ctrl+C`; no editor do Worker (`.../workers/services/edit/pauta-lembretes/production`) clique dentro, `Ctrl+A`, `Ctrl+V`, confira o número de linhas na barra de baixo e **Deploy**. O binding `AI` (Workers AI) vai em Settings, Bindings, Add binding.
 - Se o microfone do app "não funciona" num teste (ou o simulador de reconhecimento não é chamado), apague `pauta:voz` do localStorage: um teste anterior pode ter deixado a recusa lembrada por 7 dias.
 - Trocar as opções de um `<select>` (`replaceChildren`) **zera o valor escolhido**: sempre reaplique o valor depois (foi um bug do seletor de minutos na 1.5.0, só visível ao trocar 07 por 05 com o seletor em foco).
 - `parseQuickAdd` só entende número por extenso até "dez" (`NUM` em `js/parser.js`); `js/voice.js` converte os maiores para dígitos antes. Número por extenso em outro contexto novo precisa de uma regra lá.

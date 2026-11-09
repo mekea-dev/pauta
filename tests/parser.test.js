@@ -16,6 +16,17 @@ test('frase completa: data, hora, prioridade e etiqueta', () => {
   });
 });
 
+test('cada item reconhecido guarda só o seu próprio texto (o horário não engole o !alta e a #etiqueta que vêm depois)', () => {
+  const r = parseQuickAdd('Reunião amanhã às 15:00 !alta #contas, me avise 15 minutos antes', { today: T });
+  const textos = Object.fromEntries(r.tokens.map((t) => [t.type, t.text]));
+  assert.deepEqual(textos, { label: '#contas', priority: '!alta', remind: 'me avise 15 minutos antes', time: 'às 15:00', date: 'amanhã' });
+  assert.equal(r.title, 'Reunião');
+  // o mesmo com a hora no fim, onde o "buraco" dos itens recortados vem logo depois
+  const fim = parseQuickAdd('Dentista dia 20/11 !média às 15h', { today: T });
+  assert.deepEqual(fim.tokens.map((t) => t.text).sort(), ['!média', 'dia 20/11', 'às 15h'].sort());
+  assert.equal(fim.title, 'Dentista');
+});
+
 test('texto sem nada especial vira só o título', () => {
   assert.deepEqual(out('Comprar pão'), { ...NONE, title: 'Comprar pão' });
   assert.deepEqual(out(''), { ...NONE, title: '' });

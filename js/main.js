@@ -1,6 +1,7 @@
 // Ponto de entrada: carrega os dados, liga as peças e desenha a tela.
 import { STORAGE_KEY, THEME_KEY } from './config.js';
 import { isValidDate, todayISO } from './dates.js';
+import { AI_PREF, createAi } from './ai.js';
 import { createAlerts, createMirror } from './alerts.js';
 import { sanitizeState, seedState } from './model.js';
 import { getStorage, loadState, saveState } from './persist.js';
@@ -111,6 +112,24 @@ app.alerts = createAlerts({
     },
     set(v) {
       try { storage.setItem(ALERTS_PREF, v); } catch { /* sem armazenamento: vale só nesta sessão */ }
+    },
+  },
+});
+// entender a fala com IA (opcional, desligado por padrão; a escolha vale só para este aparelho). Usa o serviço de lembretes e o login da conta.
+app.ai = createAi({
+  workerUrl: PUSH.workerUrl,
+  getToken: () => (app.cloud ? app.cloud.token() : Promise.reject(Object.assign(new Error('sem conta'), { code: 'session' }))),
+  isLoggedIn: () => Boolean(app.cloud?.session),
+  prefs: {
+    get() {
+      try {
+        return storage.getItem(AI_PREF);
+      } catch {
+        return null;
+      }
+    },
+    set(v) {
+      try { storage.setItem(AI_PREF, v); } catch { /* sem armazenamento: vale só nesta sessão */ }
     },
   },
 });
