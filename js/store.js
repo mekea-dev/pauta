@@ -2,11 +2,9 @@
 // Guarda também as "lápides" de exclusão e o dono (conta) dos dados, que a sincronização entre
 // aparelhos usa. Não sabe nada de tela, de armazenamento (persist.js) nem de rede (cloud/).
 import { todayISO } from './dates.js';
-import { finalizeRule, nextAfter } from './recurrence.js';
-import { AUTO_COLORS, LABEL_COLORS, LIMITS, createTask, sanitizeSettings, sanitizeTask, uid } from './model.js';
+import { nextAfter } from './recurrence.js';
+import { AUTO_COLORS, LABEL_COLORS, LIMITS, createTask, mergePatch, sanitizeSettings, sanitizeTask, uid } from './model.js';
 import { cleanLine, fold } from './text.js';
-
-const EDITABLE = ['title', 'notes', 'date', 'time', 'remind', 'priority', 'labels', 'checklist', 'recurrence'];
 
 export function createStore(initial, { clock = () => new Date(), maxUndo = 50 } = {}) {
   let state = { deleted: {}, owner: null, seed: false, ...initial };
@@ -75,11 +73,7 @@ export function createStore(initial, { clock = () => new Date(), maxUndo = 50 } 
   function updateTask(id, patch, opts) {
     const cur = find(id);
     if (!cur) return null;
-    const merged = { ...cur };
-    for (const k of EDITABLE) if (k in patch) merged[k] = patch[k];
-    if ('date' in patch && !patch.date && !patch.recurrence) merged.recurrence = null; // tirou a data: deixa de repetir
-    if (merged.recurrence && !merged.date) merged.date = today(); // pediu para repetir sem data: começa hoje
-    if (merged.recurrence) merged.recurrence = finalizeRule(merged.recurrence, merged.date);
+    const merged = mergePatch(cur, patch, today());
     const o = { now: cur.createdAt, labelIds: labelIds(), keepEmptyItems: true };
     // título em branco (a pessoa apagou para digitar outro): mantém o anterior
     const clean = sanitizeTask(merged, o) ?? sanitizeTask({ ...merged, title: cur.title }, o);

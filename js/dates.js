@@ -29,6 +29,26 @@ export function parseISO(s) {
 export const isValidDate = (s) => parseISO(s) !== null;
 export const isValidTime = (s) => typeof s === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
 
+/** De quanto em quanto os minutos aparecem na escolha da hora: 00, 05, 10... */
+export const MINUTE_STEP = 5;
+
+/** "16:05" -> { hour: '16', minute: '05' }; hora inválida ou vazia -> null. */
+export function splitTime(s) {
+  return isValidTime(s) ? { hour: s.slice(0, 2), minute: s.slice(3, 5) } : null;
+}
+
+/**
+ * Minutos oferecidos na escolha da hora, de 5 em 5 ("00", "05", ... "55"). Um minuto "quebrado" que a tarefa já tem
+ * (14:07, que veio de uma frase digitada) também aparece, para a escolha não mudar o horário sem querer.
+ */
+export function minuteChoices(current = null) {
+  const minutes = [];
+  for (let m = 0; m < 60; m += MINUTE_STEP) minutes.push(m);
+  const now = current === null || current === '' ? NaN : Number(current);
+  if (Number.isInteger(now) && now >= 0 && now < 60 && !minutes.includes(now)) minutes.push(now);
+  return minutes.sort((a, b) => a - b).map(pad2);
+}
+
 /** Data de hoje no fuso do navegador. */
 export const todayISO = (now = new Date()) => toISO(now.getFullYear(), now.getMonth() + 1, now.getDate());
 /** Data local (AAAA-MM-DD) de um instante ISO, ex.: quando a tarefa foi concluída. */

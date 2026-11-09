@@ -1,6 +1,14 @@
 # Histórico de versões
 
-Todas as versões abaixo foram feitas e publicadas em 06/11/2026. A versão fica em `js/config.js` (`APP_VERSION`) e em `sw.js` (`VERSION`).
+As versões 1.0.0 a 1.4.1 foram feitas e publicadas em 06/11/2026; a 1.5.0, em 09/11/2026. A versão fica em `js/config.js` (`APP_VERSION`) e em `sw.js` (`VERSION`).
+
+## 1.5.0
+
+- **Hora com minutos de 5 em 5**: na janela da tarefa, a hora são duas caixas (hora e minutos: 00, 05, 10, 15...). Se a tarefa já tem um minuto "quebrado" (14:07, de uma frase digitada), ele continua aparecendo até você escolher outro.
+- **O microfone ouve até você mandar parar**: toque nele de novo ou aperte Enter. Pausas no meio da frase não cortam mais a gravação (o app volta a ouvir sozinho e junta tudo). Para sozinho só depois de 45 segundos sem ouvir uma palavra ou 3 minutos no total. Se você começar a digitar durante a gravação, o microfone sai da frente.
+- **Entende a fala como uma pessoa, no próprio aparelho (o texto não é enviado a nenhum serviço do Pauta)**: tira as hesitações ("hum", "então", "né", palavras repetidas) e o pedido ("quero criar uma tarefa", "anota aí", "tarefa:"); "preciso comprar leite" vira "Comprar leite" e "tenho reunião com o cliente" vira "Reunião com o cliente"; entende "às oito", "às quatro e vinte", "dia primeiro", "daqui a 20 minutos", "em duas horas", "é urgente", "me avise quinze minutos antes" e correções como "às 16, quer dizer, às 17" (vale a última).
+- **Quando não fica claro, o app não chuta**: se faltar o título, a hora ou a data não puderem ser lidas, o lembrete for pedido sem hora, a hora de hoje já tiver passado ou o áudio estiver pouco claro, abre a janela **Nova tarefa** (a mesma da edição) com o que foi entendido já preenchido, o resto em branco, o que ficou em dúvida e o que você disse. O pedido de lembrete espera: ao escolher a hora, ele liga sozinho. **Adicionar** cria a tarefa; fechar a janela descarta, com **Desfazer**. Quando tudo fica claro, a tarefa é criada direto, como antes.
+- Por dentro: `js/voice.js` ganhou `interpretSpoken` (a tarefa entendida e a lista de dúvidas); `js/model.js` ganhou `mergePatch` (a regra de edição compartilhada entre a tarefa e o rascunho); novo `js/ui/timepick.js`.
 
 ## 1.4.1
 

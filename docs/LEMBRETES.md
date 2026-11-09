@@ -3,7 +3,7 @@
 Duas coisas que andam juntas e que são opcionais:
 
 - **Lembrete** ("despertador"): numa tarefa que tem data e hora, você escolhe ser avisado 5 minutos, 15 minutos, 1 hora ou 1 dia antes.
-- **Voz**: o botão do microfone ao lado de **Adicionar** entende uma frase falada e cria a tarefa.
+- **Voz**: o botão do microfone ao lado de **Adicionar** ouve uma frase falada (até você mandar parar), entende o que você quis e cria a tarefa; se algo não ficar claro, abre a janela da tarefa para você completar.
 
 O lembrete funciona **sem instalar nada** enquanto o app está aberto. Para o aviso chegar **com o app fechado** (o que você quer no celular), é preciso instalar uma vez um pequeno serviço gratuito na Cloudflare. O passo a passo está mais abaixo.
 
@@ -21,15 +21,32 @@ Regras: o lembrete só existe em tarefa com data e hora; se você tirar a hora, 
 
 ### Voz
 
-Toque no microfone e fale a tarefa do seu jeito, por exemplo:
+Toque no microfone e fale a tarefa do seu jeito, **com as pausas que precisar**. O microfone fica ouvindo até você **tocar nele de novo ou apertar Enter** (para sozinho só se passar 45 segundos sem ouvir uma palavra, ou 3 minutos no total). Por exemplo:
 
 > quero que crie uma tarefa com título pagar boleto com prazo para dia 10 às 16 horas, me avise 15 minutos antes
 
-O app tira o "pedido", entende o título (**Pagar boleto**), o dia, a hora e o lembrete, cria a tarefa e mostra o que entendeu, com **Desfazer**. Também entende `reunião sexta às quatro e meia da tarde com prioridade alta` ou `lembre-me de ligar para o João amanhã às nove`.
+O app não escreve a frase como foi dita: ele entende o que você quis. Tira o "pedido" e as hesitações, descobre o título (**Pagar boleto**), o dia, a hora e o lembrete, cria a tarefa e mostra o que entendeu, com **Desfazer**. O que ele sabe fazer:
 
-- Funciona no Chrome e no Edge (computador e Android) e no Safari (em aba comum). **Não funciona no Firefox** e, até onde se sabe, **nem no app da Tela de Início do iPhone** (a Apple diz que o reconhecimento de voz do navegador não está disponível nesse modo). Mesmo assim o Pauta **tenta**: se o seu iPhone liberar, o microfone do app funciona; se recusar, o app avisa, passa para o **microfone do teclado** (o ditado do iPhone) e não insiste por 7 dias, a menos que você toque em **Tentar o microfone do app de novo**. Com o microfone do teclado, fale, confira a pré-visualização e toque em **Adicionar**: o app entende a frase falada do mesmo jeito.
-- Se o app não entender o título, ele deixa o texto no campo para você completar.
-- O reconhecimento de voz é do próprio navegador (o Chrome envia o áudio para o Google). O Pauta não grava nem guarda o áudio.
+- **Tirar a conversa**: "hum", "então", "né", palavras repetidas, "quero que crie uma tarefa", "anota aí", "tarefa:", "por favor".
+- **Reescrever a intenção**: `preciso comprar leite amanhã` vira "Comprar leite"; `tenho reunião com o cliente na quinta às 14h30` vira "Reunião com o cliente".
+- **Números e horas por extenso**: `às oito`, `às quatro e vinte`, `às nove e meia da noite`, `dia dez`, `dia primeiro`.
+- **Hora relativa**: `daqui a 20 minutos`, `em duas horas`, `dentro de meia hora` viram uma hora marcada.
+- **Lembrete, prioridade e etiqueta**: `me avise quinze minutos antes`, `com prioridade alta` ou `é urgente`, `com a etiqueta trabalho`.
+- **Correções no meio da frase**: `às 16, quer dizer, às 17` vale o último que você disse (também com "ou melhor", "na verdade" e "não, ..."; vale para data, hora, prioridade e lembrete).
+
+**Quando algo não fica claro, o app não chuta**: abre a janela **Nova tarefa** (a mesma da edição) com tudo o que entendeu já preenchido e o resto em branco, diz o que ficou em dúvida e mostra o que você disse. Você completa e toca em **Adicionar**, ou em **Descartar** (com **Desfazer**). Acontece quando:
+
+- não deu para saber o título (ou ele ficou vago, como "uma tarefa");
+- sobrou uma data ou hora que não deu para ler (`dia 32`, `às 25 horas`);
+- você pediu lembrete e não disse a hora (o pedido fica guardado: ao escolher a hora, o lembrete liga sozinho);
+- você disse só a hora e ela já passou hoje (`às 8 horas` às 9h: era hoje ou amanhã?);
+- você se corrigiu no título (`pagar o boleto, quer dizer, pagar a fatura`);
+- o navegador avisou que não ouviu com clareza.
+
+Se tudo ficou claro, a tarefa é criada direto. Isso é feito por regras no próprio aparelho, não por inteligência artificial: frases muito soltas ou longas podem fugir do que ele entende, e nesse caso você cai na janela **Nova tarefa** em vez de ficar com uma tarefa errada.
+
+- Funciona no Chrome e no Edge (computador e Android) e no Safari (em aba comum). **Não funciona no Firefox** e, até onde se sabe, **nem no app da Tela de Início do iPhone** (a Apple diz que o reconhecimento de voz do navegador não está disponível nesse modo). Mesmo assim o Pauta **tenta**: se o seu iPhone liberar, o microfone do app funciona; se recusar, o app avisa, passa para o **microfone do teclado** (o ditado do iPhone) e não insiste por 7 dias, a menos que você toque em **Tentar o microfone do app de novo**. Com o microfone do teclado, fale, confira a pré-visualização e toque em **Adicionar**: o app entende a frase falada do mesmo jeito (e abre a janela **Nova tarefa** se algo ficar em dúvida).
+- O reconhecimento de voz é do próprio navegador (o Chrome envia o áudio para o Google). O Pauta não grava nem guarda o áudio, e a interpretação da frase acontece no aparelho: **o texto falado não é enviado a nenhum serviço do Pauta**.
 
 ## Como os avisos funcionam (e o que sai do seu aparelho)
 

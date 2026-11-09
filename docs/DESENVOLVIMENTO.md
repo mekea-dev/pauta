@@ -2,7 +2,7 @@
 
 Este guia existe para você (ou um assistente, como o Claude Code) retomar o Pauta em outro computador **sem depender da conversa em que ele foi feito**. Ele diz onde as coisas estão, como rodar e testar, o que já foi feito e verificado, o que falta, o que foi decidido e por quê, e as armadilhas que já apareceram.
 
-Última atualização: 06/11/2026, versão **1.4.1**. O histórico de versões está em [CHANGELOG.md](../CHANGELOG.md). As instruções curtas para o Claude Code estão em [CLAUDE.md](../CLAUDE.md).
+Última atualização: 09/11/2026, versão **1.5.0**. O histórico de versões está em [CHANGELOG.md](../CHANGELOG.md). As instruções curtas para o Claude Code estão em [CLAUDE.md](../CLAUDE.md).
 
 ## Primeiros passos em outro computador
 
@@ -10,7 +10,7 @@ Este guia existe para você (ou um assistente, como o Claude Code) retomar o Pau
 2. Suba um servidor local (módulos JavaScript e service worker não funcionam abrindo o arquivo com duplo clique):
    - Windows, sem instalar nada: `powershell -NoProfile -ExecutionPolicy Bypass -File .\servir.ps1` (abre em `http://localhost:8789/`).
    - Qualquer sistema com Python: `python -m http.server 8789`.
-3. Abra `http://localhost:8789/tests/`. Deve aparecer **OK** com todos os testes (251 em 06/11/2026). Com Node 18 ou mais novo: `node --test` (o GitHub Actions usa o Node 22).
+3. Abra `http://localhost:8789/tests/`. Deve aparecer **OK** com todos os testes (290 em 09/11/2026). Com Node 18 ou mais novo: `node --test` (o GitHub Actions usa o Node 22).
 4. Para testar login e sincronização **sem tocar no Firebase real**: `python scripts/emulador-nuvem.py --porta 8790` e abra `http://localhost:8790/`. O código de convite do emulador é `FAMILIA2026`. As contas ficam só na memória dele e somem quando ele é reiniciado.
 5. Com o Claude Code: abra a pasta do repositório (ele lê o `CLAUDE.md` sozinho) e peça para ler este guia primeiro.
 
@@ -30,12 +30,12 @@ Endereços: site em <https://mekea-dev.github.io/pauta/> (GitHub Pages, ramo `ma
 | `manifest.webmanifest` | instalação como app (PWA) |
 | `worker/lembretes.js` | **serviço de lembretes** (Cloudflare Worker). Não faz parte do site: é colado no painel da Cloudflare |
 | `js/config.js` | nome, **versão** (`APP_VERSION`) e chaves de armazenamento |
-| `js/dates.js` | datas como texto `AAAA-MM-DD` (sem fuso), nomes e formatos em português |
+| `js/dates.js` | datas como texto `AAAA-MM-DD` (sem fuso), nomes e formatos em português; `minuteChoices` (minutos de 5 em 5 da escolha da hora) |
 | `js/text.js` | `fold` (minúsculas, sem acento, mesmo tamanho) e ajudantes de plural |
 | `js/recurrence.js` | regras de repetição (todo dia, dias úteis, a cada N semanas...) |
 | `js/parser.js` | adicionar rápido em português: data, hora, prioridade, etiquetas, repetição e **lembrete** ("me avise 15 minutos antes") |
-| `js/voice.js` | `normalizeSpoken`: tira o "pedido falado" ("crie uma tarefa com título...") e troca números por extenso por dígitos, para o parser entender |
-| `js/model.js` | tarefa, etiqueta, estado; `createTask`, `sanitizeTask`, `cleanRemind` |
+| `js/voice.js` | a fala vira tarefa, **tudo no aparelho, por regras**: `normalizeSpoken` (tira hesitações, o "pedido" e a intenção; números, horas e hora relativa por extenso viram dígitos; correções) e `interpretSpoken` (usa a de cima + o parser e devolve a tarefa, a lista de dúvidas `issues` e `clear`) |
+| `js/model.js` | tarefa, etiqueta, estado; `createTask`, `sanitizeTask`, `cleanRemind`, `mergePatch` (a regra de edição, usada pela tarefa e pelo rascunho) |
 | `js/store.js` | estado em memória, desfazer, operações (`addTask`, `updateTask`, `toggleDone`...) |
 | `js/persist.js` | localStorage (`pauta:v1`) com reserva em memória e cópia do que estiver corrompido |
 | `js/query.js` | filtros, ordenação, contagens e busca |
@@ -44,19 +44,19 @@ Endereços: site em <https://mekea-dev.github.io/pauta/> (GitHub Pages, ramo `ma
 | `js/alerts.js` | **motor dos lembretes**: relógio de 20 s, espelho de avisos (Cache API), envio da lista ao serviço, ligar, desligar e testar |
 | `js/push.js` | inscrição Web Push e conversa com o serviço de lembretes |
 | `js/push-config.js` | endereço do serviço (`workerUrl`) |
-| `js/speech.js` | microfone (Web Speech), bloqueio lembrado e limites de tempo |
+| `js/speech.js` | microfone (Web Speech): ouve em várias rodadas até mandarem parar, junta o texto, bloqueio lembrado e limites de tempo |
 | `js/main.js` | ponto de entrada: dados, rotas, ligação das peças, service worker |
 | `js/sync/merge.js` | mescla das tarefas entre aparelhos (a mais recente vence; lápides de 90 dias) |
 | `js/cloud/` | login e banco do Firebase por REST (`firebase.js`), motor de sincronização (`sync.js`), regras de conta (`account.js`) e a configuração (`config.js`) |
-| `js/ui/` | a tela: `composer` (campo de adicionar e microfone), `editor`, `taskrow`, `views`, `calendar`, `sidebar`, `topbar`, `settings`, `account`, `actions`, `overlay`, `notify`, `icons`, `shortcuts`, `dom` |
+| `js/ui/` | a tela: `composer` (campo de adicionar e microfone), `editor` (editar tarefa **e** rascunho de tarefa nova, `openDraft`), `timepick` (hora e minutos de 5 em 5), `taskrow`, `views`, `calendar`, `sidebar`, `topbar`, `settings`, `account`, `actions`, `overlay`, `notify`, `icons`, `shortcuts`, `dom` |
 | `scripts/emulador-nuvem.py` | "Firebase de mentira" local (login, banco e as mesmas regras do guia) |
 | `scripts/gerar-icones.ps1` | recria os PNGs dos ícones |
 | `tests/` | testes (Node e navegador); `tests/shim/` faz o `node:test` funcionar no navegador |
 | `docs/` | guias (`NUVEM.md`, `LEMBRETES.md`, este), regras do banco (`regras-banco*.json`) e imagens do README |
 
-### Testes (251 em 06/11/2026)
+### Testes (290 em 09/11/2026)
 
-`dates`, `recurrence`, `parser`, `voice` (frases faladas), `reminders` (contas), `speech` (microfone), `push` (inscrição), `alerts` (motor), `sw` (o `sw.js` roda dentro de um navegador de mentira: `push` e `notificationclick`), `worker` (o serviço, inclusive a assinatura VAPID), `model`, `query`, `store`, `merge`, `cloud` (Firebase de mentira), `io` e `site` (consistência do pacote do site).
+`dates`, `recurrence`, `parser`, `voice` (frases faladas: limpeza, correções, o que fica claro e o que vira dúvida), `reminders` (contas), `speech` (microfone, com um reconhecedor de mentira que o teste "faz falar"), `push` (inscrição), `alerts` (motor), `sw` (o `sw.js` roda dentro de um navegador de mentira: `push` e `notificationclick`), `worker` (o serviço, inclusive a assinatura VAPID), `model`, `query`, `store`, `merge`, `cloud` (Firebase de mentira), `io` e `site` (consistência do pacote do site).
 
 ### Regras do projeto que os testes cobram
 
@@ -163,38 +163,66 @@ O `auth` é a chave da inscrição push (só o aparelho e o serviço de aviso a 
 
 ## A voz por dentro
 
-`js/speech.js` usa a Web Speech API do navegador (`SpeechRecognition` ou `webkitSpeechRecognition`), em `pt-BR`. `js/voice.js` (`normalizeSpoken`) transforma a frase falada em texto que o `parser.js` entende: tira "quero que crie uma tarefa com título", "com prazo para", troca "dia dez", "às quatro e meia da tarde" etc. por dígitos, e entende "com prioridade alta" e "com a etiqueta trabalho". Ele **não** come títulos legítimos: "Criar relatório mensal" fica como está (só se tira o pedido quando ele é inequívoco: tem "tarefa" ou "lembrete", ou começa com "quero que", "por favor", "me lembre de").
+### Ouvir (`js/speech.js`)
 
-Ao terminar de falar, o campo (`js/ui/composer.js`) cria a tarefa na hora e mostra o que entendeu, com **Desfazer**. Se faltar o título, deixa o texto no campo.
+Usa a Web Speech API do navegador (`SpeechRecognition` ou `webkitSpeechRecognition`), em `pt-BR`, com `continuous = true` e resultados provisórios. O navegador costuma encerrar a rodada sozinho no primeiro silêncio, e uma tarefa falada tem pausas; por isso, **quando a rodada acaba sem ninguém ter mandado parar, o app começa outra (250 ms depois) e junta o texto** (`firm` = o que ficou firme nas rodadas anteriores, `heard` = a rodada de agora). A pessoa termina tocando no microfone de novo ou apertando Enter (`speech.stop()`: o navegador entrega o que faltava e o app chama `onFinal(texto, { confidence })` uma vez).
+
+Limites: 3 minutos no total, 45 s sem nenhuma palavra (`idleMs`), 3 s de espera depois do `stop()` (se o navegador não terminar, o app termina por ele). Proteções: `no-speech` numa pausa não é erro; 4 rodadas seguidas que acabam em menos de 1 s sem ouvir nada (`quickEndMs`) viram erro (sem sinal de vida = `service-not-allowed`), para não ficar num laço; se o `start()` da rodada seguinte falhar 3 vezes, vira erro `unknown`. Alguns navegadores (Chrome no Android) repetem tudo a cada trecho ("oi", "oi tudo", "oi tudo bem"): `absorb()` fica só com o mais completo. `confidence` é a média do que o navegador informou; **0 ou ausente quer dizer "não informa"** (alguns navegadores mandam 0; **o que o iPhone manda não foi conferido**) e vira `null`. Se o editor abrir com "Não ouvi com clareza" em frases que estavam boas, ajuste `LOW_CONFIDENCE` em `js/voice.js`.
+
+### Entender (`js/voice.js`)
+
+Duas camadas, **ambas por regras no aparelho (nenhum texto sai)**:
+
+1. `normalizeSpoken(texto, { now })` devolve um texto que o `parser.js` já sabe ler. Em ordem: tira hesitações ("hum", "ahn", "éééé") e palavras repetidas; conversa antes do pedido ("então", "ah tá") quando o pedido vem logo depois; o **pedido** ("quero que crie uma tarefa com título", "anota aí", "nova tarefa", "tarefa:", "uma tarefa de estudar..."); a **intenção** ("preciso comprar" vira "comprar", "tenho que ligar", "vou levar", "lembrar de pagar", "para eu ir"); o sujeito de "tenho reunião" / "vou ter dentista"; "com prazo para"; hora relativa ("daqui a 20 minutos" vira "hoje às 09:20", só com `now`); números por extenso ("dia dez", "às oito", "às quatro e vinte", "dia primeiro", "me avise quinze minutos antes"); prioridade ("com prioridade alta", "é urgente", "urgente" no fim); etiqueta ("com a etiqueta trabalho"); **correções** ("às 16, quer dizer, às 17": vale a última; só para data, hora, prioridade e lembrete, usando o próprio parser para achar o que foi substituído).
+2. `interpretSpoken(texto, { today, now, weekStart, ignore, confidence, defaultDate })` usa a de cima e o parser e devolve o resultado do parser mais `issues` (`[{ code, text }]`), `clear` (`issues` vazio), `heard` e `effectiveDate` (o dia contando o dia aberto na tela e "hora sem dia vale hoje"). Códigos de dúvida: `no-title`, `vague-title` ("uma tarefa", "algo"; **título curto como "X" não é dúvida**), `bad-date` e `bad-time` (sobrou "dia 32" ou "às 25 horas" no título), `bad-remind` (sobrou "me avise ... antes" que não deu para ler), `correction` (correção do título, que não é adivinhada), `time-passed` (hora sem dia e a hora de hoje já passou), `remind-needs-time` (lembrete pedido sem hora) e `low-confidence` (confiança entre 0 e 0,45: `LOW_CONFIDENCE`).
+
+**Cuidado central**: não comer títulos legítimos. "Criar relatório mensal", "Agendar dentista", "Tarefa de casa", "Salão de beleza", "Deixar tudo pronto", "Preciso de ajuda com o relatório" ficam como estão (há testes para isso); só se tira o pedido quando ele é inequívoco. Ao mexer nas regras, rode também a lista de títulos comuns em `tests/voice.test.js`.
+
+### Criar ou abrir o rascunho (`js/ui/composer.js` e `js/ui/editor.js`)
+
+Ao terminar de falar, `finishVoice` chama `submit`: se `clear`, cria a tarefa na hora e mostra o que entendeu, com **Desfazer**; se houver dúvida, chama `app.editor.openDraft(campos, { heard, issues })`. O editor aceita um **rascunho**: uma tarefa que ainda não existe no `store`, editada só na memória com as mesmas regras (`mergePatch` + `createTask`); **Adicionar** chama `store.addTask`; fechar sem adicionar descarta com um aviso e **Desfazer** (`discardDraft`). Um lembrete pedido sem hora fica guardado em `draftInfo.wantRemind` e liga quando a hora for escolhida (a menos que a pessoa mexa no lembrete antes). O mesmo caminho vale para o ditado do teclado (campo com `spoken = true`).
 
 **Limite do iPhone**: no app da Tela de Início o iOS, até onde se sabe, não oferece o reconhecimento de voz do navegador (WebKit, bug 225298, fechado como "RESOLVED LATER"; a Apple respondeu que não está disponível nesse modo "por enquanto"). Não foi achado sinal de correção no iOS 26, mas **não foi testado num iPhone de verdade**. Por isso, desde a 1.4.1 o app **tenta mesmo assim** e se prepara para três desfechos:
 - erro explícito (`service-not-allowed`, `not-allowed`, `language-not-supported`, ou `aborted` antes de qualquer sinal de vida): mostra o aviso, **lembra por 7 dias** neste aparelho (chave `pauta:voz` no localStorage) e passa para o **microfone do teclado** (o ditado do iPhone; o texto ditado passa pelo mesmo `normalizeSpoken`);
 - navegador mudo (aceita o `start` e não faz nada): ao tocar para parar, espera 3 s e então trata como recusa;
 - funciona: tarefa criada como no computador.
 
-Quando o app já sabe que o navegador recusou, o toque no microfone vai direto ao teclado, com o link **Tentar o microfone do app de novo** (apaga a lembrança e tenta). Ouvir tem limite de 30 s. "Não permitido" só vira bloqueio lembrado no app do iPhone; no computador é escolha da pessoa e o navegador cuida disso.
+Quando o app já sabe que o navegador recusou, o toque no microfone vai direto ao teclado, com o link **Tentar o microfone do app de novo** (apaga a lembrança e tenta). "Não permitido" só vira bloqueio lembrado no app do iPhone; no computador é escolha da pessoa e o navegador cuida disso.
 
 ## O que foi verificado e o que não foi
 
-**Verificado em 06/11/2026**
+**Verificado em 09/11/2026 (versão 1.5.0)**
+- 290 testes automáticos no navegador. (O GitHub Actions, com Node 22, roda os mesmos; conferir o resultado depois de publicar.)
+- Interface no navegador embutido do Claude Code, com um reconhecedor de voz **simulado** que a página recebe no lugar do real: gravação contínua com pausa no meio (o app religou sozinho, `starts: 2`, e juntou as duas partes), parar tocando no microfone e apertando Enter, parar sem ter falado nada ("Não ouvi nada"), digitar durante a gravação (cancela o microfone), Esc; frase clara criando a tarefa direto; frase sem título abrindo **Nova tarefa** com dia e hora preenchidos, título em branco e destacado, o que foi dito; Adicionar, Descartar e **Desfazer**; lembrete pedido sem hora ligando ao escolher a hora (e "15 minutos antes" avisando 15 min antes da hora escolhida); seletor de hora de 5 em 5 com todas as transições (minuto quebrado 16:07 -> 25, tirar a hora, escolher de novo); layout de celular (375 px) do rascunho.
+
+**Verificado em 06/11/2026 (1.4.x)**
 - 251 testes automáticos, no navegador e no GitHub Actions (Node 22).
 - Interface no navegador embutido do Claude Code: voz simulada (criação da tarefa a partir da frase falada), pré-visualização e avisos de lembrete sem hora, linha Lembrete no editor, sino na lista, seção de avisos nas Configurações (estado "bloqueado"), layout de celular, e o microfone no modo "app do iPhone" simulado (recusa, bloqueio lembrado, "tentar de novo", navegador mudo).
 - Produção: `/vapid` devolve 65 bytes; chamadas a partir de `https://mekea-dev.github.io` passam no CORS e na política de segurança; `/subscribe` e `/reminders` respondem 200, senha errada 403, endereço não permitido 400; o relógio de 1 minuto rodou e apagou um aparelho falso (o Google respondeu 404 ou 410).
 
 **NÃO verificado**
 - Um aviso **chegando de verdade** num aparelho (o pedido de permissão do Chrome ficou sem resposta; o iPhone nunca foi testado).
-- Reconhecimento de voz **real** (o navegador embutido bloqueia o microfone) e o que o iOS faz no modo app.
+- Reconhecimento de voz **real** (o navegador embutido bloqueia o microfone) e o que o iOS faz no modo app. Em especial na 1.5.0: se `continuous = true` e o religar automático da rodada se comportam bem no Chrome e no Safari de verdade (o iOS pode repetir um som ou o pedido de permissão a cada rodada), e que **confiança** o iPhone informa (afeta `LOW_CONFIDENCE`). As regras de `js/voice.js` foram escritas e testadas com frases que **eu escrevi**, não com transcrições reais: o mais provável de faltar é uma frase que o reconhecedor real escreve de outro jeito.
+- Os dois seletores de hora na roda do iPhone (`<select>` nativo): a lista de minutos de 5 em 5 foi conferida só no navegador do computador.
 - Em iPhone: Cache API do espelho, toque na notificação abrindo a tarefa (`#/tarefa/<id>`), e o pedido de permissão.
 - Cadastro **sem código** com uma conta nova no Firebase real (só no simulador de regras e no emulador), redefinição de senha por e-mail, excluir conta, segundo aparelho real.
 
 ## Pendências
 
 1. **No iPhone** (fechar e abrir o app uma vez antes): Configurações, Avisos dos lembretes, Ligar avisos, **Testar com o app fechado**. Se falhar: a própria seção mostra o motivo; olhe também os Logs do Worker.
-2. **Microfone no iPhone**: ver se o app da Tela de Início aceita o reconhecimento de voz (1.4.1). Se recusar (esperado), decidir se vale a opção abaixo.
+2. **Microfone no iPhone**: ver se o app da Tela de Início aceita o reconhecimento de voz (1.4.1) e se a gravação contínua da 1.5.0 funciona (pausas no meio da frase, parar tocando de novo no microfone). Se recusar (esperado), decidir se vale uma das opções abaixo. **Anote as frases que o app entendeu errado** (o que foi dito, o que virou): são o melhor insumo para melhorar `js/voice.js`.
 3. **Restringir a chave de API do Firebase** por referrer (Google Cloud Console, APIs e serviços, Credenciais, chave do navegador: `https://mekea-dev.github.io/*` e `http://localhost:8789/*`). É configuração de segurança do dono da conta.
 4. Teste de aviso de ponta a ponta no computador (seção acima).
 5. Testes reais pendentes do Firebase: cadastro sem código, redefinição de senha, excluir conta, segundo aparelho. Depois, tirar do README a frase "testados com um Firebase de mentira".
 6. Cosmético: o `package.json` ainda diz `"version": "1.0.0"` (não é usado).
+
+### Opção: entender a fala com IA (Cloudflare Workers AI)
+
+**Não implementada; precisa da aprovação do dono** porque o **texto falado (os títulos das tarefas) sairia do aparelho** para um serviço de IA (hoje só horários saem, e só para o serviço de lembretes). Serviria para o que as regras de `js/voice.js` não alcançam: reescrever frases bem soltas ou longas como uma pessoa ("ah então, tipo, lembra de ligar pro seu José, o do financeiro, na quinta de manhã, umas nove horas por aí" -> "Ligar para o seu José do financeiro", quinta, 09:00), como o ditado do Claude ou as legendas do Meet fazem.
+- **Encaixe**: `interpretSpoken` já devolve a tarefa entendida e as dúvidas. A IA entraria **antes**, só quando as regras deixarem dúvida (ou sempre, se o dono quiser), e a resposta da IA passaria pelas mesmas conferências (`parseQuickAdd` e `clear`); sem internet ou com erro, valem as regras locais.
+- **Worker**: rota nova (`POST /interpretar`) com o mesmo cuidado do plano da transcrição abaixo (verificar o token do Firebase, limite por pessoa no D1), chamando `env.AI.run` com um modelo de texto da lista atual do Workers AI e pedindo JSON (`title`, `date`, `time`, `remind`, `priority`, `labels`, `recurrence`). Enviar também a data de hoje e o fuso. Colar o código no painel e acrescentar o binding `AI` (configuração da conta Cloudflare do dono).
+- **Custo**: o plano gratuito do Workers AI dá 10.000 neurons por dia (conferir o preço do modelo escolhido em <https://developers.cloudflare.com/workers-ai/platform/pricing/>); uma frase curta custa poucos neurons.
+- **Privacidade**: deixar **desligado por padrão**, com uma opção nas Configurações explicando que o texto falado vai à Cloudflare, e dizer isso no README e em `docs/LEMBRETES.md` (hoje eles afirmam que nada do texto sai do aparelho).
 
 ### Opção: microfone de verdade no app do iPhone (transcrição na Cloudflare)
 
@@ -220,6 +248,9 @@ Quando o app já sabe que o navegador recusou, o toque no microfone vai direto a
 - **Toque sem conteúdo (Web Push)**: o iPhone não agenda notificação local e o GitHub Pages não executa código; precisava de um serviço. Mandar só o "toque" faz com que os títulos nunca saiam do aparelho.
 - **Cloudflare Worker + D1 + cron de 1 minuto**: gratuito e sem servidor para cuidar. A precisão do aviso é de 1 minuto.
 - **Microfone do navegador com reserva no teclado**: a única opção gratuita e sem enviar áudio a lugar nenhum.
+- **A fala é entendida por regras, no aparelho** (1.5.0): o dono quis que a fala "faça sentido" como no Claude ou nas legendas do Meet. Regras cobrem o que é previsível (pedido, hesitações, intenção, horas, correções) sem enviar nada para fora; a IA externa ficou como opção que exige aprovação (acima).
+- **Quando não fica claro, não chuta, abre o rascunho** (1.5.0): pedido do dono, com a condição de "não ser retrabalho". Por isso o rascunho já vem com o que foi entendido, diz o que ficou em dúvida e guarda o pedido de lembrete até a hora ser escolhida; quando tudo fica claro, a tarefa é criada direto.
+- **Hora com minutos de 5 em 5 em duas caixas** (1.5.0): o `<input type="time" step="300">` não garante a roda de 5 em 5 no iPhone; `<select>` nativo garante. O minuto "quebrado" de uma tarefa existente continua na lista para não ser alterado sem querer.
 - **Escopo enxuto**: o dono prefere ferramentas simples e diretas, "não um Trello da vida"; extras só como oferta.
 
 ## Armadilhas já encontradas
@@ -230,4 +261,9 @@ Quando o app já sabe que o navegador recusou, o toque no microfone vai direto a
 - O navegador embutido do Claude Code e o Chrome controlado por extensão **não conseguem clicar em pedidos de permissão do navegador** (notificações, microfone): isso exige uma pessoa.
 - Testes que usam relógios reais (`tests/speech.test.js`, `tests/alerts.test.js`) esperam alguns milissegundos; a suíte inteira leva uns 15 s no navegador.
 - Os testes de `tests/site.test.js` proíbem emojis e setas: para setas em texto, use `->` ou `>`.
+- Se o microfone do app "não funciona" num teste (ou o simulador de reconhecimento não é chamado), apague `pauta:voz` do localStorage: um teste anterior pode ter deixado a recusa lembrada por 7 dias.
+- Trocar as opções de um `<select>` (`replaceChildren`) **zera o valor escolhido**: sempre reaplique o valor depois (foi um bug do seletor de minutos na 1.5.0, só visível ao trocar 07 por 05 com o seletor em foco).
+- `parseQuickAdd` só entende número por extenso até "dez" (`NUM` em `js/parser.js`); `js/voice.js` converte os maiores para dígitos antes. Número por extenso em outro contexto novo precisa de uma regra lá.
+- Datas inválidas ("31 de abril") ainda podem virar outra data silenciosamente (`dia 31` vira o próximo dia 31 e sobra "de abril" no título); não é detectado como dúvida.
+- Tarefa que repete (`todo dia às 7h`) criada depois das 7h começa **hoje** (já atrasada): vem do `firstOccurrence` do parser, não da fala.
 - A ferramenta de edição do Claude Code converte sequências `\uXXXX` em glifos; para escapes exatos, use PowerShell.

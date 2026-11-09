@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   addDays, addMonths, dayHeading, dayTitle, daysInMonth, diffDays, formatDateBR, isValidDate, isValidTime,
-  monthGrid, parseISO, relativeDay, startOfWeek, todayISO, weekday,
+  minuteChoices, monthGrid, parseISO, relativeDay, splitTime, startOfWeek, todayISO, weekday,
 } from '../js/dates.js';
 
 const T = '2026-11-06'; // sexta-feira
@@ -24,6 +24,25 @@ test('isValidTime', () => {
   assert.ok(!isValidTime('24:00'));
   assert.ok(!isValidTime('9:30'));
   assert.ok(!isValidTime('09:60'));
+});
+
+test('minutos da escolha da hora: de 5 em 5; um minuto "quebrado" que a tarefa já tem continua aparecendo', () => {
+  assert.deepEqual(minuteChoices(), ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55']);
+  assert.deepEqual(minuteChoices('30'), minuteChoices(), '30 já está na lista');
+  assert.deepEqual(minuteChoices('07').slice(0, 4), ['00', '05', '07', '10'], '14:07 não pode virar 14:05 sem querer');
+  assert.equal(minuteChoices('07').length, 13);
+  assert.equal(minuteChoices(59).at(-1), '59');
+  assert.equal(minuteChoices('abc').length, 12, 'lixo não entra na lista');
+  assert.equal(minuteChoices(75).length, 12);
+  assert.equal(minuteChoices(null).length, 12);
+});
+
+test('splitTime separa hora e minutos de um horário válido', () => {
+  assert.deepEqual(splitTime('16:05'), { hour: '16', minute: '05' });
+  assert.deepEqual(splitTime('00:00'), { hour: '00', minute: '00' });
+  assert.equal(splitTime('24:00'), null);
+  assert.equal(splitTime(''), null);
+  assert.equal(splitTime(null), null);
 });
 
 test('addDays cruza mês, ano e fevereiro bissexto', () => {

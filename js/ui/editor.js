@@ -1,11 +1,15 @@
 // Janela de edição da tarefa: título, anotações, checklist, data/hora, prioridade, etiquetas e repetição.
 // Tudo é gravado enquanto você digita (sem botão "Salvar").
+// Também serve de RASCUNHO para uma tarefa nova que veio da fala e não ficou clara (openDraft): os campos que o app entendeu já vêm
+// preenchidos, o resto fica em branco, e a tarefa só entra na lista quando a pessoa toca em "Adicionar".
 import { WEEKDAYS, addDays, capitalize, formatStamp, relativeDay, startOfWeek, todayISO, weekday, weekdayLabels } from '../dates.js';
-import { LIMITS, PRIORITIES, uid } from '../model.js';
+import { LIMITS, PRIORITIES, createTask, mergePatch, uid } from '../model.js';
 import { PRESETS, describe, presetOf } from '../recurrence.js';
 import { REMIND_PRESETS, remindAt, remindLabel } from '../reminders.js';
-import { h, isTouch } from './dom.js';
+import { clip, h, isTouch } from './dom.js';
 import { icon } from './icons.js';
+import { toast } from './overlay.js';
+import { createTimePicker } from './timepick.js';
 
 const URL_RE = /https?:\/\/[^\s<>"')\]]+/gi;
 // marcadores de lista ao colar texto: - * bolinha, quadradinho, circulo, travessao, "1." e "1)"
@@ -17,6 +21,8 @@ export function createEditor(app) {
   document.body.append(dlg);
 
   let taskId = null;
+  let draft = null; // tarefa NOVA que ainda não existe na lista (veio da fala); null = está editando uma tarefa que já existe
+  let draftInfo = null; // { heard: o que foi dito, issues: o que não ficou claro, wantRemind: lembrete pedido que espera a hora }
   let items = []; // rascunho do checklist: { id, text, done }
   let pending = {};
   let timer = 0;
@@ -25,6 +31,9 @@ export function createEditor(app) {
   let c = null; // referências aos controles da tela aberta
   let downOnBackdrop = false;
 
+  /** A tarefa que a tela mostra: a que está sendo editada ou o rascunho da nova. */
+  const current = () => draft ?? (taskId ? store.find(taskId) : null);
+
   dlg.addEventListener('pointerdown', (e) => { downOnBackdrop = e.target === dlg; });
   dlg.addEventListener('click', (e) => { if (e.target === dlg && downOnBackdrop) close(); });
   dlg.addEventListener('close', onClosed);
@@ -32,10 +41,20 @@ export function createEditor(app) {
   // ---------- gravação ----------
   function flush() {
     clearTimeout(timer);
-    if (!taskId || !Object.keys(pending).length) return;
+    if (!Object.keys(pending).length) return;
     const patch = pending;
     pending = {};
-    store.updateTask(taskId, patch, { undoable: false });
+    if (draft) applyToDraft(patch);
+    else if (taskId) store.updateTask(taskId, patch, { undoable: false });
+  }
+
+  /** No rascunho as mudanças ficam só na memória, com as mesmas regras de uma tarefa de verdade (mergePatch + createTask). */
+  function applyToDraft(patch) {
+    if ('remind' in patch) draftInfo.wantRemind = null; // a pessoa mexeu no lembrete: vale a escolha dela
+    const merged = mergePatch(draft, patch, store.today());
+    // pediu "avise 15 minutos antes" sem dizer a hora: o pedido espera, e vale assim que a hora for escolhida
+    if (!('remind' in patch) && merged.remind == null && draftInfo.wantRemind != null) merged.remind = draftInfo.wantRemind;
+    draft = { ...createTask(merged, draft.createdAt), id: draft.id };
   }
   function queue(patch, now = false) {
     Object.assign(pending, patch);
@@ -52,6 +71,7 @@ export function createEditor(app) {
     const t = store.find(id);
     if (!t) return;
     if (dlg.open) flush();
+    if (draft) discardDraft(); // abriu outra tarefa com um rascunho na tela: o rascunho não se perde em silêncio
     taskId = id;
     pending = {};
     forceCustom = false;
@@ -67,6 +87,61 @@ export function createEditor(app) {
     }
   }
 
+  /**
+   * Abre a janela para uma tarefa NOVA, já com o que o app entendeu da fala. `fields`: título, data, hora, lembrete, prioridade,
+   * etiquetas (ids), repetição. `info`: `heard` (o que foi dito), `issues` ([{ text }]: o que não ficou claro).
+   */
+  function openDraft(fields, info = {}) {
+    if (dlg.open) flush();
+    if (draft) discardDraft();
+    taskId = null;
+    draft = createTask(fields, new Date().toISOString());
+    const wanted = Number.isInteger(fields.remind) ? fields.remind : info.wantRemind;
+    draftInfo = { heard: info.heard ?? '', issues: info.issues ?? [], wantRemind: Number.isInteger(wanted) ? wanted : null };
+    pending = {};
+    forceCustom = false;
+    items = draft.checklist.map((x) => ({ ...x }));
+    build(draft);
+    if (!dlg.open) dlg.showModal();
+    fit(c.title, 160);
+    fit(c.notes, 320);
+    // sem título é o que mais falta: leva direto para ele (no celular o teclado só sobe se a pessoa tocar)
+    if (!draft.title || !isTouch()) {
+      c.title.focus();
+      c.title.setSelectionRange(c.title.value.length, c.title.value.length);
+    }
+  }
+
+  /** "Adicionar": o rascunho vira uma tarefa de verdade. Sem título não dá. */
+  function commitDraft() {
+    flush();
+    if (!draft || !c) return;
+    if (!draft.title.trim()) {
+      c.title.classList.add('is-missing');
+      c.title.classList.remove('shake');
+      void c.title.offsetWidth; // reinicia a animação
+      c.title.classList.add('shake');
+      c.title.focus();
+      return;
+    }
+    const task = store.addTask({ ...draft });
+    if (!task) return;
+    draft = null;
+    draftInfo = null;
+    if (dlg.open) dlg.close();
+    app.actions.added(task);
+  }
+
+  /** Fechou o rascunho sem adicionar: descarta, mas deixa "Desfazer" (um toque fora da janela é fácil de errar). */
+  function discardDraft() {
+    const lost = draft;
+    const info = draftInfo;
+    draft = null;
+    draftInfo = null;
+    if (!lost || !(lost.title.trim() || lost.date || lost.notes || lost.checklist.length)) return;
+    toast('Rascunho descartado', { action: { label: 'Desfazer', onClick: () => openDraft(lost, info ?? {}) } });
+  }
+
   function close() {
     flush();
     if (dlg.open) dlg.close();
@@ -74,9 +149,13 @@ export function createEditor(app) {
 
   function onClosed() {
     flush();
-    const t = taskId && store.find(taskId);
-    if (t && t.checklist.some((x) => !x.text.trim())) {
-      store.updateTask(taskId, { checklist: t.checklist.filter((x) => x.text.trim()) }, { undoable: false });
+    if (draft) {
+      discardDraft();
+    } else {
+      const t = taskId && store.find(taskId);
+      if (t && t.checklist.some((x) => !x.text.trim())) {
+        store.updateTask(taskId, { checklist: t.checklist.filter((x) => x.text.trim()) }, { undoable: false });
+      }
     }
     taskId = null;
     c = null;
@@ -88,8 +167,10 @@ export function createEditor(app) {
     const today = store.today();
     const ws = store.state.settings.weekStart;
     c = {};
+    dlg.setAttribute('aria-label', draft ? 'Nova tarefa' : 'Editar tarefa');
 
-    c.doneBtn = h('button', {
+    // uma tarefa nova ainda não pode ser concluída
+    c.doneBtn = draft ? null : h('button', {
       class: 'check big', type: 'button', role: 'checkbox', 'aria-checked': t.done, 'aria-label': 'Concluir tarefa',
       onclick: () => {
         const cur = store.find(taskId);
@@ -113,11 +194,17 @@ export function createEditor(app) {
           c.title.setSelectionRange(pos, pos);
         }
         fit(c.title, 160);
+        if (draft) c.title.classList.toggle('is-missing', !c.title.value.trim());
         queue({ title: c.title.value });
       },
       onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); c.notes.focus(); } },
-      onblur: () => { if (!c.title.value.trim()) { c.title.value = store.find(taskId)?.title ?? ''; fit(c.title, 160); } },
+      // numa tarefa que já existe o título não pode ficar vazio (volta o anterior); no rascunho, vazio é o que falta preencher
+      onblur: () => { if (!draft && !c.title.value.trim()) { c.title.value = store.find(taskId)?.title ?? ''; fit(c.title, 160); } },
     });
+    if (draft && !t.title) c.title.classList.add('is-missing');
+
+    // o que o app entendeu da fala e o que ficou em dúvida (só no rascunho)
+    c.draftNote = draft ? draftNote() : null;
 
     // --- anotações ---
     c.notes = h('textarea', {
@@ -149,14 +236,16 @@ export function createEditor(app) {
       ['Hoje', () => today], ['Amanhã', () => addDays(today, 1)],
       ['Próx. semana', () => startOfWeek(addDays(today, 7), ws)], ['Sem data', () => null],
     ].map(([label, fn]) => h('button', { class: 'btn btn-sm btn-ghost', type: 'button', onclick: () => queue({ date: fn() }, true) }, label));
-    c.time = h('input', {
-      class: 'input', type: 'time', value: t.time ?? '', 'aria-label': 'Hora',
-      onchange: () => {
-        const patch = { time: c.time.value || null };
-        if (c.time.value && !c.date.value) patch.date = todayISO();
+    // hora e minutos em duas caixas: os minutos vão de 5 em 5 (00, 05, 10...)
+    c.time = createTimePicker({
+      label: 'Hora',
+      onChange: (value) => {
+        const patch = { time: value };
+        if (value && !c.date.value) patch.date = todayISO();
         queue(patch, true);
       },
     });
+    c.time.set(t.time);
     c.timeClear = h('button', { class: 'icon-btn sm', type: 'button', 'aria-label': 'Tirar a hora', title: 'Tirar a hora', onclick: () => queue({ time: null }, true) }, icon('x', 14));
 
     // --- lembrete: um aviso X minutos antes da hora (só existe com data e hora) ---
@@ -181,7 +270,7 @@ export function createEditor(app) {
         if (!name) return;
         const [id] = store.ensureLabels([name]);
         c.newLabel.value = '';
-        const cur = store.find(taskId);
+        const cur = current();
         if (id && cur && !cur.labels.includes(id)) queue({ labels: [...cur.labels, id] }, true);
         else refresh();
       },
@@ -210,24 +299,13 @@ export function createEditor(app) {
 
     c.created = h('span', { class: 'ed-created' });
 
-    dlg.replaceChildren(h('div', { class: 'dialog-body editor-body' },
-      h('div', { class: 'ed-head' }, c.doneBtn, c.title, h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fechar', onclick: close }, icon('x', 20))),
-      h('div', { class: 'ed-section' },
-        h('div', { class: 'ed-label' }, icon('note', 16), h('span', {}, 'Anotações')),
-        c.notes, c.links),
-      h('div', { class: 'ed-section' },
-        h('div', { class: 'ed-label' }, icon('checklist', 16), h('span', {}, 'Checklist'), c.checkCount),
-        c.checkBar, c.checkList,
-        h('div', { class: 'ci-add' }, icon('plus', 16), c.checkAdd),
-        c.checkBanner),
-      h('div', { class: 'ed-fields' },
-        row('calendar', 'Data', h('div', { class: 'ctrl-line' }, c.date, c.dateHint), h('div', { class: 'ctrl-line wrap' }, quick)),
-        row('clock', 'Hora', h('div', { class: 'ctrl-line' }, c.time, c.timeClear)),
-        row('bell', 'Lembrete', c.remind, c.remindHint),
-        row('flag', 'Prioridade', h('div', { class: 'seg', role: 'group', 'aria-label': 'Prioridade' }, c.prio)),
-        row('tag', 'Etiquetas', c.labels, c.newLabel),
-        row('repeat', 'Repetir', c.rec, c.recCustom, c.recHint)),
-      h('div', { class: 'ed-foot' },
+    const foot = draft
+      ? h('div', { class: 'ed-foot' },
+        h('div', { class: 'ed-foot-left' },
+          h('button', { class: 'btn btn-sm btn-danger-ghost', type: 'button', onclick: close }, icon('trash', 15), 'Descartar')),
+        c.created,
+        h('button', { class: 'btn btn-primary', type: 'button', onclick: commitDraft }, icon('plus', 16), 'Adicionar'))
+      : h('div', { class: 'ed-foot' },
         h('div', { class: 'ed-foot-left' },
           h('button', {
             class: 'btn btn-sm', type: 'button',
@@ -242,23 +320,55 @@ export function createEditor(app) {
             onclick: () => { const id = taskId; close(); app.actions.remove(id); },
           }, icon('trash', 15), 'Excluir')),
         c.created,
-        h('button', { class: 'btn btn-primary', type: 'button', onclick: close }, 'Pronto'))));
+        h('button', { class: 'btn btn-primary', type: 'button', onclick: close }, 'Pronto'));
+
+    dlg.replaceChildren(h('div', { class: 'dialog-body editor-body' },
+      c.draftNote,
+      h('div', { class: 'ed-head' }, c.doneBtn, c.title, h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fechar', onclick: close }, icon('x', 20))),
+      h('div', { class: 'ed-section' },
+        h('div', { class: 'ed-label' }, icon('note', 16), h('span', {}, 'Anotações')),
+        c.notes, c.links),
+      h('div', { class: 'ed-section' },
+        h('div', { class: 'ed-label' }, icon('checklist', 16), h('span', {}, 'Checklist'), c.checkCount),
+        c.checkBar, c.checkList,
+        h('div', { class: 'ci-add' }, icon('plus', 16), c.checkAdd),
+        c.checkBanner),
+      h('div', { class: 'ed-fields' },
+        row('calendar', 'Data', h('div', { class: 'ctrl-line' }, c.date, c.dateHint), h('div', { class: 'ctrl-line wrap' }, quick)),
+        row('clock', 'Hora', h('div', { class: 'ctrl-line' }, c.time.el, c.timeClear)),
+        row('bell', 'Lembrete', c.remind, c.remindHint),
+        row('flag', 'Prioridade', h('div', { class: 'seg', role: 'group', 'aria-label': 'Prioridade' }, c.prio)),
+        row('tag', 'Etiquetas', c.labels, c.newLabel),
+        row('repeat', 'Repetir', c.rec, c.recCustom, c.recHint)),
+      foot));
 
     renderChecklist();
     renderLinks();
     refresh();
   }
 
+  /** Aviso no alto do rascunho: o que ficou em dúvida e o que foi dito (para a pessoa conferir sem precisar lembrar). */
+  function draftNote() {
+    const { issues, heard } = draftInfo;
+    return h('div', { class: 'ed-draft', role: 'status' },
+      h('b', {}, issues.length ? 'Confira antes de adicionar' : 'Nova tarefa'),
+      ...issues.map((i) => h('p', {}, i.text)),
+      h('p', {}, 'Complete o que faltou e toque em Adicionar.'),
+      heard ? h('p', { class: 'ed-heard' }, 'Você disse: ', h('i', {}, `“${clip(heard, 160)}”`)) : null);
+  }
+
   // ---------- sincronizar controles com a tarefa gravada ----------
   function refresh() {
-    const t = taskId && store.find(taskId);
+    const t = current();
     if (!t || !c) return;
-    c.doneBtn.className = `check big p${t.priority}`;
-    c.doneBtn.setAttribute('aria-checked', String(t.done));
-    c.doneBtn.setAttribute('aria-label', t.done ? 'Reabrir tarefa' : 'Concluir tarefa');
+    if (c.doneBtn) {
+      c.doneBtn.className = `check big p${t.priority}`;
+      c.doneBtn.setAttribute('aria-checked', String(t.done));
+      c.doneBtn.setAttribute('aria-label', t.done ? 'Reabrir tarefa' : 'Concluir tarefa');
+    }
     if (document.activeElement !== c.date) c.date.value = t.date ?? '';
     c.dateHint.textContent = t.date ? capitalize(WEEKDAYS[weekday(t.date)]) : 'Sem data';
-    if (document.activeElement !== c.time) c.time.value = t.time ?? '';
+    c.time.set(t.time);
     c.timeClear.hidden = !t.time;
     syncRemind(t);
     for (const b of c.prio) b.setAttribute('aria-pressed', String(Number(b.dataset.value) === t.priority));
@@ -267,7 +377,7 @@ export function createEditor(app) {
     c.labels.replaceChildren(...labels.map((l) => h('button', {
       class: `chip lbl lc-${l.color} toggle`, type: 'button', 'aria-pressed': t.labels.includes(l.id),
       onclick: () => {
-        const cur = store.find(taskId);
+        const cur = current();
         queue({ labels: cur.labels.includes(l.id) ? cur.labels.filter((x) => x !== l.id) : [...cur.labels, l.id] }, true);
       },
     }, l.name)));
@@ -286,7 +396,7 @@ export function createEditor(app) {
     }
     c.recHint.textContent = t.recurrence ? `${describe(t.recurrence, t.date)}. Ao concluir, a próxima já é criada.` : '';
     c.recHint.hidden = !t.recurrence;
-    c.created.textContent = t.done && t.doneAt ? `Concluída em ${formatStamp(t.doneAt)}` : `Criada em ${formatStamp(t.createdAt)}`;
+    c.created.textContent = draft ? '' : t.done && t.doneAt ? `Concluída em ${formatStamp(t.doneAt)}` : `Criada em ${formatStamp(t.createdAt)}`;
     updateBanner();
   }
 
@@ -312,7 +422,10 @@ export function createEditor(app) {
   }
 
   function remindHint(t, remind, hasTime) {
-    if (!hasTime) return ['Escolha uma data e uma hora para poder ter lembrete.'];
+    if (!hasTime) {
+      if (draft && draftInfo.wantRemind !== null) return [`Você pediu aviso ${remindLabel(draftInfo.wantRemind).toLowerCase()}. Escolha a hora e ele é ligado.`];
+      return ['Escolha uma data e uma hora para poder ter lembrete.'];
+    }
     if (remind === null) return ['Escolha quanto tempo antes você quer ser avisado.'];
     const at = remindAt(t);
     const lines = [at.getTime() <= Date.now() ? 'Esse horário de aviso já passou.' : `Você será avisado ${relativeDay(todayISO(at), store.today()).toLowerCase()} às ${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}.`];
@@ -332,7 +445,7 @@ export function createEditor(app) {
   function onRecChange(id) {
     if (id === 'custom') {
       forceCustom = true;
-      const cur = store.find(taskId);
+      const cur = current();
       queue({ recurrence: cur.recurrence ?? { freq: 'week', interval: 1 } }, true);
       return;
     }
@@ -379,7 +492,7 @@ export function createEditor(app) {
   }
 
   function updateBanner() {
-    const t = taskId && store.find(taskId);
+    const t = !draft && taskId && store.find(taskId); // "Concluir tarefa" não existe numa tarefa que ainda não foi criada
     c.checkBanner.hidden = !(t && !t.done && items.length > 0 && items.every((i) => i.done));
   }
 
@@ -442,7 +555,7 @@ export function createEditor(app) {
     renderChecklist();
   }
 
-  return { open, close, get isOpen() { return dlg.open; } };
+  return { open, openDraft, close, get isOpen() { return dlg.open; } };
 }
 
 /** Ajusta a altura de uma caixa de texto ao conteúdo (até um máximo). */

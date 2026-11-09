@@ -8,20 +8,28 @@ const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebK
 const DIA = 86400000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** `mute`: o navegador "mudo" (existe, aceita start, mas nunca dá sinal de vida nem termina: o que se teme no app do iPhone). */
-function fakeEnv({ ua = PC, standalone = false, displayStandalone = false, withApi = true, startThrows = false, ctorThrows = false, mute = false } = {}) {
+/**
+ * `mute`: o navegador "mudo" (existe, aceita start, mas nunca dá sinal de vida nem termina: o que se teme no app do iPhone).
+ * `startOk`: quantos `start()` funcionam (os seguintes falham, como quando o navegador ainda não terminou a rodada anterior).
+ */
+function fakeEnv({ ua = PC, standalone = false, displayStandalone = false, withApi = true, startThrows = false, ctorThrows = false, mute = false, startOk = Infinity } = {}) {
   const made = [];
   class Recognition {
     constructor() {
       if (ctorThrows) throw new Error('boom');
+      this.starts = 0;
       made.push(this);
     }
-    start() { if (startThrows) throw new Error('InvalidStateError'); this.started = true; }
+    start() {
+      if (startThrows || this.starts >= startOk) throw new Error('InvalidStateError');
+      this.starts += 1;
+      this.started = true;
+    }
     stop() { this.stopped = true; if (!mute) this.onend?.(); } // parar entrega o que foi ouvido e termina
     abort() { this.aborted = true; if (!mute) this.onend?.(); }
-    /** Cada parte: { text, final }. */
+    /** Cada parte: { text, final, confidence }. Uma rodada nova do navegador começa com a lista de trechos vazia. */
     say(...parts) {
-      this.onresult?.({ results: parts.map(({ text, final }) => Object.assign([{ transcript: text }], { isFinal: final })) });
+      this.onresult?.({ results: parts.map(({ text, final, confidence }) => Object.assign([{ transcript: text, confidence }], { isFinal: final })) });
     }
   }
   const env = { navigator: { userAgent: ua, platform: 'Win32', maxTouchPoints: 0, standalone }, matchMedia: () => ({ matches: displayStandalone }) };
@@ -35,9 +43,12 @@ const fakeStorage = () => {
 };
 
 const listen = (speech) => {
-  const log = { interim: [], final: [], errors: [], ended: 0 };
+  const log = { interim: [], final: [], info: [], errors: [], ended: 0, endInfo: null };
   const ok = speech.start({
-    onInterim: (t) => log.interim.push(t), onFinal: (t) => log.final.push(t), onError: (c) => log.errors.push(c), onEnd: () => { log.ended += 1; },
+    onInterim: (t) => log.interim.push(t),
+    onFinal: (t, info) => { log.final.push(t); log.info.push(info); },
+    onError: (c) => log.errors.push(c),
+    onEnd: (info) => { log.ended += 1; log.endInfo = info; },
   });
   return { ok, log };
 };
@@ -67,7 +78,7 @@ test('isIosHomeScreenApp: só iPhone ou iPad com o app aberto pela Tela de Iníc
   assert.equal(isIosHomeScreenApp({ navigator: { userAgent: 'Macintosh', platform: 'MacIntel', maxTouchPoints: 0, standalone: true } }), false, 'Mac de verdade');
 });
 
-test('ouve em português, mostra o que vem chegando e entrega o texto final uma vez só', () => {
+test('ouve em português, mostra o que vem chegando e só entrega o texto final quando a pessoa manda parar', () => {
   const { env, made } = fakeEnv();
   const speech = createSpeech(env);
   const { ok, log } = listen(speech);
@@ -76,31 +87,35 @@ test('ouve em português, mostra o que vem chegando e entrega o texto final uma 
   const rec = made[0];
   assert.equal(rec.lang, 'pt-BR');
   assert.equal(rec.interimResults, true);
-  assert.equal(rec.continuous, false);
+  assert.equal(rec.continuous, true, 'não para no primeiro silêncio');
   rec.say({ text: 'crie uma tarefa', final: false });
   rec.say({ text: 'crie uma tarefa pagar boleto', final: false });
   rec.say({ text: 'crie uma tarefa pagar boleto dia 10', final: true });
   assert.deepEqual(log.interim, ['crie uma tarefa', 'crie uma tarefa pagar boleto', 'crie uma tarefa pagar boleto dia 10']);
-  assert.deepEqual(log.final, [], 'o final só vem quando o reconhecimento termina');
-  rec.stop();
+  assert.deepEqual(log.final, [], 'o final só vem quando a pessoa manda parar');
+  assert.equal(speech.listening, true);
+  speech.stop();
   assert.deepEqual(log.final, ['crie uma tarefa pagar boleto dia 10']);
   assert.equal(log.ended, 1);
+  assert.deepEqual(log.endInfo, { text: 'crie uma tarefa pagar boleto dia 10', failed: false, canceled: false });
   assert.equal(speech.listening, false);
 });
 
 test('junta as partes (o que já está firme e o que ainda pode mudar)', () => {
   const { env, made } = fakeEnv();
-  const { log } = listen(createSpeech(env));
+  const speech = createSpeech(env);
+  const { log } = listen(speech);
   made[0].say({ text: 'pagar boleto ', final: true }, { text: 'amanhã', final: false });
-  made[0].stop();
+  speech.stop();
   assert.deepEqual(log.final, ['pagar boleto amanhã']);
 });
 
 test('parar no meio entrega o que foi ouvido; cancelar não entrega nada', () => {
   const a = fakeEnv();
-  const parar = listen(createSpeech(a.env));
+  const sa = createSpeech(a.env);
+  const parar = listen(sa);
   a.made[0].say({ text: 'comprar pão', final: false });
-  a.made[0].stop();
+  sa.stop();
   assert.deepEqual(parar.log.final, ['comprar pão']);
 
   const b = fakeEnv();
@@ -127,13 +142,157 @@ test('erro passageiro: avisa o código, não entrega texto, avisa o fim e não b
   assert.equal(speech.usable, true);
 });
 
-test('silêncio total: termina sem texto e sem entregar nada', () => {
-  const { env, made } = fakeEnv();
-  const { log } = listen(createSpeech(env));
-  made[0].onend();
+test('parar sem ter ouvido nada: termina sem texto, sem erro, e o fim avisa que não veio texto', () => {
+  const { env } = fakeEnv();
+  const speech = createSpeech(env);
+  const { log } = listen(speech);
+  speech.stop();
   assert.deepEqual(log.final, []);
   assert.deepEqual(log.errors, []);
   assert.equal(log.ended, 1);
+  assert.deepEqual(log.endInfo, { text: '', failed: false, canceled: false });
+});
+
+// ---------- ouvir até a pessoa mandar parar ----------
+test('o navegador termina sozinho numa pausa: o app volta a ouvir e junta o que veio antes com o que vem depois', async () => {
+  const { env, made } = fakeEnv();
+  const speech = createSpeech(env, { restartMs: 5 });
+  const { log } = listen(speech);
+  const rec = made[0];
+  rec.onstart();
+  rec.say({ text: 'comprar pão', final: true });
+  rec.onend(); // silêncio: o navegador encerrou a rodada
+  assert.equal(speech.listening, true, 'continua ouvindo');
+  assert.deepEqual(log.final, []);
+  await sleep(40);
+  assert.equal(rec.starts, 2, 'começou uma nova rodada');
+  rec.say({ text: 'e leite', final: false }); // a nova rodada começa com a lista de trechos vazia
+  assert.equal(log.interim.at(-1), 'comprar pão e leite');
+  speech.stop();
+  assert.deepEqual(log.final, ['comprar pão e leite']);
+  assert.equal(log.ended, 1);
+});
+
+test('mandar parar entre uma rodada e outra termina na hora, com tudo o que foi ouvido', async () => {
+  const { env, made } = fakeEnv();
+  const speech = createSpeech(env, { restartMs: 500 });
+  const { log } = listen(speech);
+  made[0].say({ text: 'ligar para o João', final: true });
+  made[0].onend();
+  assert.equal(speech.listening, true);
+  speech.stop(); // a próxima rodada ainda nem começou
+  assert.deepEqual(log.final, ['ligar para o João']);
+  assert.equal(speech.listening, false);
+  assert.equal(made[0].starts, 1, 'não chegou a começar outra rodada');
+  await sleep(10);
+  assert.equal(log.ended, 1);
+});
+
+test('cancelar entre uma rodada e outra também termina na hora, sem entregar nada', () => {
+  const { env, made } = fakeEnv();
+  const speech = createSpeech(env, { restartMs: 500 });
+  const { log } = listen(speech);
+  made[0].say({ text: 'ligar para o João', final: true });
+  made[0].onend();
+  speech.cancel();
+  assert.deepEqual(log.final, []);
+  assert.equal(log.ended, 1);
+  assert.equal(log.endInfo.canceled, true);
+  assert.equal(speech.listening, false);
+});
+
+test('"não ouvi nada" (no-speech) numa pausa não é erro: o app segue ouvindo', async () => {
+  const { env, made } = fakeEnv();
+  const speech = createSpeech(env, { restartMs: 5, quickEndMs: 0 });
+  const { log } = listen(speech);
+  made[0].onstart();
+  made[0].onerror({ error: 'no-speech' });
+  made[0].onend();
+  await sleep(40);
+  assert.deepEqual(log.errors, []);
+  assert.equal(speech.listening, true);
+  assert.equal(made[0].starts, 2);
+  speech.cancel();
+});
+
+test('sem ouvir nenhuma palavra por muito tempo, o app para sozinho (o microfone não fica aberto à toa)', async () => {
+  const { env, made } = fakeEnv();
+  const speech = createSpeech(env, { idleMs: 20 });
+  const { log } = listen(speech);
+  made[0].onstart();
+  await sleep(70);
+  assert.equal(made[0].stopped, true);
+  assert.equal(log.ended, 1);
+  assert.deepEqual(log.endInfo, { text: '', failed: false, canceled: false }, 'terminou sem texto: a tela avisa que não ouviu nada');
+  assert.equal(speech.listening, false);
+});
+
+test('cada palavra ouvida zera a espera: quem fala devagar não é cortado', async () => {
+  const { env, made } = fakeEnv();
+  const speech = createSpeech(env, { idleMs: 120 });
+  const { log } = listen(speech);
+  made[0].onstart();
+  for (const text of ['comprar', 'comprar pão', 'comprar pão e leite']) {
+    await sleep(50);
+    made[0].say({ text, final: false });
+  }
+  assert.equal(speech.listening, true, 'foram 150 ms no total, mas nunca 120 ms seguidos sem palavra');
+  speech.stop();
+  assert.deepEqual(log.final, ['comprar pão e leite']);
+});
+
+test('rodadas que acabam na hora, sem ouvir nada, de novo e de novo: o app desiste (não fica num laço)', async () => {
+  const { env, made } = fakeEnv();
+  const speech = createSpeech(env, { restartMs: 2, quickEndMs: 10000 });
+  const { log } = listen(speech);
+  for (let i = 0; i < 4; i += 1) {
+    made[0].onend();
+    await sleep(25);
+  }
+  assert.equal(made[0].starts, 4, 'a primeira rodada mais três tentativas');
+  assert.deepEqual(log.errors, ['service-not-allowed'], 'nunca deu sinal de vida: é recusa do navegador');
+  assert.equal(log.ended, 1);
+  assert.equal(speech.listening, false);
+  assert.equal(speech.blocked, true);
+});
+
+test('se o navegador não deixa começar a rodada seguinte, o app desiste com um erro (em vez de ficar "ouvindo" sem ouvir)', async () => {
+  const { env, made } = fakeEnv({ startOk: 1 });
+  const speech = createSpeech(env, { restartMs: 2 });
+  const { log } = listen(speech);
+  made[0].onstart();
+  made[0].say({ text: 'comprar pão', final: true });
+  made[0].onend();
+  await sleep(60);
+  assert.deepEqual(log.errors, ['unknown']);
+  assert.equal(log.ended, 1);
+  assert.equal(speech.listening, false);
+  assert.deepEqual(log.final, [], 'com erro, não entrega: o texto já estava no campo e a pessoa decide');
+});
+
+test('Android repete tudo a cada trecho ("oi", "oi tudo", "oi tudo bem"): fica só o mais completo', () => {
+  const { env, made } = fakeEnv();
+  const speech = createSpeech(env);
+  const { log } = listen(speech);
+  made[0].say({ text: 'comprar', final: true }, { text: 'comprar pão', final: true }, { text: 'Comprar pão e leite', final: false });
+  speech.stop();
+  assert.deepEqual(log.final, ['Comprar pão e leite']);
+});
+
+test('confiança: média do que o navegador informou; 0 ou ausente = não informa (vira null)', () => {
+  const a = fakeEnv();
+  const sa = createSpeech(a.env);
+  const la = listen(sa);
+  a.made[0].say({ text: 'comprar pão', final: true, confidence: 0.9 }, { text: 'amanhã', final: true, confidence: 0.5 });
+  sa.stop();
+  assert.equal(la.log.info[0].confidence.toFixed(2), '0.70');
+
+  const b = fakeEnv();
+  const sb = createSpeech(b.env);
+  const lb = listen(sb);
+  b.made[0].say({ text: 'comprar pão', final: true, confidence: 0 });
+  sb.stop();
+  assert.equal(lb.log.info[0].confidence, null, 'confiança 0 quer dizer "o navegador não informa": não é "baixa", é "não sei"');
 });
 
 test('não começa duas vezes; se o navegador recusar o start, devolve false (sem bloquear); se nem criar o reconhecimento, bloqueia', () => {
@@ -287,7 +446,7 @@ test('cancelar com o navegador mudo também termina, sem entregar nada nem acusa
   assert.equal(speech.usable, true);
 });
 
-test('limite de tempo: ninguém dita uma tarefa por 30 segundos; passou do limite, o app para sozinho e entrega o que ouviu', async () => {
+test('limite de tempo total: passou do máximo, o app para sozinho e entrega o que ouviu', async () => {
   const { env, made } = fakeEnv();
   const speech = createSpeech(env, { maxListenMs: 15 });
   const { log } = listen(speech);

@@ -98,6 +98,23 @@ export function createTask(partial = {}, now = new Date().toISOString()) {
   };
 }
 
+/** O que a pessoa pode mudar numa tarefa (o resto, como id e datas de criação, é do sistema). */
+export const EDITABLE = ['title', 'notes', 'date', 'time', 'remind', 'priority', 'labels', 'checklist', 'recurrence'];
+
+/**
+ * Aplica uma mudança a uma tarefa mantendo data e repetição coerentes entre si (ainda sem limpar os valores):
+ * tirou a data, deixa de repetir; pediu para repetir sem data, começa hoje. Usada ao editar uma tarefa (store.js)
+ * e também no rascunho de uma tarefa nova (ui/editor.js).
+ */
+export function mergePatch(cur, patch, today) {
+  const merged = { ...cur };
+  for (const k of EDITABLE) if (k in patch) merged[k] = patch[k];
+  if ('date' in patch && !patch.date && !patch.recurrence) merged.recurrence = null; // tirou a data: deixa de repetir
+  if (merged.recurrence && !merged.date) merged.date = today; // pediu para repetir sem data: começa hoje
+  if (merged.recurrence) merged.recurrence = finalizeRule(merged.recurrence, merged.date);
+  return merged;
+}
+
 /** Limpa uma tarefa vinda de fora. Retorna null se não tiver título. */
 export function sanitizeTask(raw, { now = new Date().toISOString(), labelIds = null, keepEmptyItems = false } = {}) {
   if (!raw || typeof raw !== 'object') return null;

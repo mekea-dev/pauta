@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createTask, sanitizeChecklist, sanitizeState, seedState, uid } from '../js/model.js';
+import { createTask, mergePatch, sanitizeChecklist, sanitizeState, seedState, uid } from '../js/model.js';
 
 const NOW = '2026-11-06T10:00:00.000Z';
 
@@ -18,6 +18,30 @@ test('createTask normaliza e descarta o que não faz sentido', () => {
   assert.equal(t.recurrence, null); // sem data não repete
   assert.equal(t.done, false);
   assert.equal(t.createdAt, NOW);
+});
+
+test('mergePatch: só mexe no que a pessoa pode editar e mantém data e repetição coerentes', () => {
+  const base = createTask({ title: 'Academia', date: '2026-11-09', time: '19:00', remind: 15, recurrence: { freq: 'week', interval: 1 } });
+  const t = mergePatch(base, { id: 'outro', done: true, title: 'Novo', priority: 3 }, '2026-11-06');
+  assert.equal(t.title, 'Novo');
+  assert.equal(t.priority, 3);
+  assert.equal(t.id, base.id, 'id não é editável');
+  assert.equal(t.done, false, 'concluir não é uma edição');
+  assert.equal(mergePatch(base, { date: null }, '2026-11-06').recurrence, null, 'tirou a data: deixa de repetir');
+  const semData = createTask({ title: 'Sem data' });
+  const repete = mergePatch(semData, { recurrence: { freq: 'day', interval: 1 } }, '2026-11-06');
+  assert.equal(repete.date, '2026-11-06', 'pediu para repetir sem data: começa hoje');
+  assert.equal(repete.recurrence.freq, 'day');
+});
+
+test('rascunho: createTask aceita título vazio e só guarda lembrete e hora quando há data e hora (como a tarefa de verdade)', () => {
+  const sem = createTask({ title: '', date: '2026-11-10', remind: 15 });
+  assert.equal(sem.title, '');
+  assert.equal(sem.remind, null, 'sem hora, o lembrete não existe');
+  const com = createTask(mergePatch(sem, { time: '16:00', remind: 15 }, '2026-11-06'));
+  assert.equal(com.time, '16:00');
+  assert.equal(com.remind, 15);
+  assert.equal(createTask({ title: 'x', time: '16:00' }).time, null, 'hora sem data não vale');
 });
 
 test('checklist: ignora itens vazios, repara ids repetidos e mantém vazios se pedido', () => {
