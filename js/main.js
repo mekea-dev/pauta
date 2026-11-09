@@ -1,7 +1,7 @@
 // Ponto de entrada: carrega os dados, liga as peças e desenha a tela.
 import { STORAGE_KEY, THEME_KEY } from './config.js';
 import { isValidDate, todayISO } from './dates.js';
-import { AI_PREF, createAi } from './ai.js';
+import { AI_NOTICE, AI_PREF, createAi } from './ai.js';
 import { createAlerts, createMirror } from './alerts.js';
 import { sanitizeState, seedState } from './model.js';
 import { getStorage, loadState, saveState } from './persist.js';
@@ -115,7 +115,7 @@ app.alerts = createAlerts({
     },
   },
 });
-// entender a fala com IA (opcional, desligado por padrão; a escolha vale só para este aparelho). Usa o serviço de lembretes e o login da conta.
+// entender a fala com IA (ligada por padrão; a escolha de desligar vale só para este aparelho). Usa o serviço de lembretes e o login da conta.
 app.ai = createAi({
   workerUrl: PUSH.workerUrl,
   getToken: () => (app.cloud ? app.cloud.token() : Promise.reject(Object.assign(new Error('sem conta'), { code: 'session' }))),
@@ -130,6 +130,18 @@ app.ai = createAi({
     },
     set(v) {
       try { storage.setItem(AI_PREF, v); } catch { /* sem armazenamento: vale só nesta sessão */ }
+    },
+  },
+  notice: { // o aviso do primeiro uso (a IA está ligada por padrão) sai uma vez por aparelho
+    get() {
+      try {
+        return storage.getItem(AI_NOTICE) === '1';
+      } catch {
+        return false;
+      }
+    },
+    set() {
+      try { storage.setItem(AI_NOTICE, '1'); } catch { /* sem armazenamento: o aviso sai uma vez por sessão */ }
     },
   },
 });

@@ -1,6 +1,19 @@
 # Histórico de versões
 
-As versões 1.0.0 a 1.4.1 foram feitas e publicadas em 06/11/2026; a 1.5.0 e a 1.6.0, em 09/11/2026. A versão fica em `js/config.js` (`APP_VERSION`) e em `sw.js` (`VERSION`).
+As versões 1.0.0 a 1.4.1 foram feitas e publicadas em 06/11/2026; a 1.5.0, a 1.6.0 e a 1.7.0, em 09/11/2026. A versão fica em `js/config.js` (`APP_VERSION`) e em `sw.js` (`VERSION`).
+
+## 1.7.0
+
+- **A IA da fala vem ligada** (pedido do dono): não é mais preciso ligar em cada aparelho. Em **Configurações > Entender a fala com IA** dá para desligar, por aparelho, e quem desliga continua com tudo funcionando pelas regras. No primeiro uso aparece um aviso de que o texto falado vai ao serviço do Pauta (que não o guarda) e de como desligar. Quem já tinha ligado ou desligado antes mantém a escolha.
+- **A IA só usa o que você disse**: o pedido à IA agora manda manter as palavras da fala (só tirar hesitações e o pedido, pôr o verbo no infinitivo, sem sinônimos nem "melhorar" o título) e o app confere: se o título que a IA devolveu tem uma palavra que você não falou ("Marcar consulta no dentista" para "marcar dentista"), vale o título tirado da sua fala; o dia, a hora, a prioridade e o resto continuam sendo conferidos como antes. **Exige colar o `worker/lembretes.js` novo no painel da Cloudflare** (só o texto do pedido mudou); sem isso a conferência do app já vale, só falta a instrução à IA.
+- **Microfone que não trava, principalmente no iPhone**:
+  - No iPhone o reconhecimento deixa de usar o modo contínuo do Safari (instável: o fim e o texto podem nunca chegar) e passa a ouvir uma frase por vez, voltando a ouvir sozinho; para quem fala é igual.
+  - O recado "Ouvindo…" ganhou o botão **Parar e enviar** (no iPhone não existe a tecla Enter). Depois de parar, o app espera pouco pelo navegador (2 s no iPhone, 3 s nos outros) e termina por ele; tocar de novo em **Enviar agora** termina na hora.
+  - Se o navegador der erro e nunca avisar o fim, ou a tela for para segundo plano (iPhone), o microfone é solto. Se a entrega do texto der erro, a tela ainda volta ao normal.
+  - Se o microfone liga e nenhuma palavra aparece em 8 segundos, o app avisa e oferece o microfone do teclado.
+- **A espera da IA nunca prende a tela**: o prazo de 10 s passa a contar também a renovação do login (antes só o pedido; uma renovação travada deixava "Entendendo com IA…" para sempre), há o botão **Pular a IA** (apertar Enter de novo também pula), e qualquer erro ali segue com as regras do aparelho.
+- **Relatório do microfone** (Configurações > Problemas com o microfone?): copia uma linha do tempo do último uso do microfone (horários e nomes dos eventos, nunca o que foi falado), para descobrir o que houve quando algo trava num aparelho que o desenvolvedor não tem.
+- Testes: 320 -> 341 (novos: microfone no iPhone, parada forçada, fim garantido, relatório, IA ligada por padrão, prazo do login, pular a IA, título fiel à fala).
 
 ## 1.6.0
 

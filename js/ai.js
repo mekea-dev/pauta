@@ -1,19 +1,21 @@
-// Entender a fala com IA (OPCIONAL, desligado por padrão, escolha de cada aparelho nas Configurações).
+// Entender a fala com IA (LIGADA por padrão; cada aparelho pode desligar nas Configurações).
 //
-// O que sai do aparelho quando está ligado: a FRASE FALADA (só o texto), a data de hoje, a hora de agora e o token do seu login (para o
+// O que sai do aparelho quando está ligada: a FRASE FALADA (só o texto), a data de hoje, a hora de agora e o token do seu login (para o
 // serviço saber que é você). O serviço do Pauta na Cloudflare (worker/lembretes.js, rota /interpretar) pede a uma IA que reescreva a frase
 // como uma linha de "adicionar tarefa" ("Pagar o boleto dia 10 às 16:00 me avise 30 minutos antes") e devolve essa linha; ele não guarda
-// nem registra a frase. Desligado (ou sem internet, sem login, sem o recurso no serviço, ou com o limite do dia esgotado), tudo
+// nem registra a frase. Desligada (ou sem internet, sem login, sem o recurso no serviço, ou com o limite do dia esgotado), tudo
 // continua funcionando com as regras do aparelho (js/voice.js): a IA só melhora, nunca é necessária.
 //
-// A IA é tratada como fonte NÃO confiável: a linha que ela devolve passa pelo mesmo analisador das frases digitadas (parser.js) e por
-// `reconcile`, que tira o que a IA inventou (dia, hora, prioridade... sem nenhum sinal na fala) e devolve o que a fala tinha e a IA deixou cair.
+// A IA é tratada como fonte NÃO confiável e só pode usar o que a pessoa DISSE: a linha que ela devolve passa pelo mesmo analisador das
+// frases digitadas (parser.js) e por `reconcile`, que tira o que a IA inventou (dia, hora, prioridade... sem nenhum sinal na fala,
+// ou palavras do título que a pessoa não falou) e devolve o que a fala tinha e a IA deixou cair.
 import { parseQuickAdd } from './parser.js';
 import { fold } from './text.js';
 import { normalizeSpoken } from './voice.js';
 
-export const AI_PREF = 'pauta:ia'; // 'on' | 'off', por aparelho
-const TIMEOUT_MS = 9000;
+export const AI_PREF = 'pauta:ia'; // 'on' | 'off', por aparelho (sem escolha feita = ligada)
+export const AI_NOTICE = 'pauta:ia-aviso'; // '1' depois que o aviso do primeiro uso foi mostrado neste aparelho
+const TIMEOUT_MS = 10000; // tempo TOTAL para a IA responder (conferir o login e fazer o pedido); depois disso o app segue com as regras
 
 const REASONS = {
   off: 'A IA está desligada neste aparelho.',
@@ -23,6 +25,7 @@ const REASONS = {
   limit: 'Você usou a IA demais por agora. Tente mais tarde.',
   unavailable: 'A IA está indisponível agora (talvez tenha acabado o limite grátis do dia).',
   timeout: 'A IA demorou demais para responder.',
+  skipped: 'Você pulou a IA.',
   error: 'A IA respondeu de um jeito que não deu para usar.',
 };
 
@@ -31,38 +34,67 @@ export const describeAiFailure = (reason) => REASONS[reason] ?? REASONS.error;
 
 const pad2 = (n) => String(n).padStart(2, '0');
 
+const abortError = () => Object.assign(new Error('aborted'), { name: 'AbortError' });
+
+/** Espera a promessa, mas desiste (rejeitando) se o sinal for acionado antes. */
+function until(promise, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(abortError());
+      return;
+    }
+    const onAbort = () => reject(abortError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve(promise).then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
+}
+
 /**
  * @param {object} options
  * @param {string} options.workerUrl   endereço do serviço (o mesmo dos lembretes: js/push-config.js)
  * @param {() => Promise<string>} options.getToken  token do login do Firebase, renovado se preciso
  * @param {() => boolean} [options.isLoggedIn]
- * @param {{get: () => string|null, set: (v: string) => void}} [options.prefs]  a escolha da pessoa ('on' | 'off')
+ * @param {{get: () => string|null, set: (v: string) => void}} [options.prefs]  a escolha da pessoa ('on' | 'off'; vazio = ligada)
+ * @param {{get: () => boolean, set: () => void}} [options.notice]  se o aviso do primeiro uso já foi mostrado
  */
-export function createAi({ workerUrl, getToken, isLoggedIn = () => true, prefs, env = globalThis, fetchImpl, timeoutMs = TIMEOUT_MS } = {}) {
+export function createAi({ workerUrl, getToken, isLoggedIn = () => true, prefs, notice, env = globalThis, fetchImpl, timeoutMs = TIMEOUT_MS } = {}) {
   const base = String(workerUrl ?? '').trim().replace(/\/+$/, '');
   const doFetch = fetchImpl ?? ((...args) => env.fetch(...args));
   const configured = () => /^https:\/\/[^/]+/.test(base);
-  const isOn = () => prefs?.get() === 'on';
+  let choice = null; // a escolha feita nesta sessão (vale mesmo que o aparelho não deixe guardar)
+  let shown = false; // o aviso do primeiro uso já saiu nesta sessão (idem)
+  const ownChoice = () => {
+    const v = choice ?? prefs?.get();
+    return v === 'on' || v === 'off' ? v : null;
+  };
+  const isOn = () => ownChoice() !== 'off'; // ligada, a não ser que a pessoa tenha desligado
   const online = () => env.navigator?.onLine !== false;
 
   /**
-   * Pede à IA que reescreva a frase. Nunca lança erro.
+   * Pede à IA que reescreva a frase. Nunca lança erro e nunca demora mais que `timeoutMs` (contando o login).
+   * `signal`: se a pessoa pular a IA, o pedido é abandonado na hora (motivo "skipped").
    * @returns {Promise<{ok: true, texto: string, duvidas: string[]} | {ok: false, reason: string}>}
    */
-  async function rewrite(heard, { today, now = new Date() } = {}) {
+  async function rewrite(heard, { today, now = new Date(), signal } = {}) {
     if (!isOn()) return { ok: false, reason: 'off' };
     if (!configured()) return { ok: false, reason: 'config' };
     if (!isLoggedIn()) return { ok: false, reason: 'login' };
     if (!online()) return { ok: false, reason: 'offline' };
-    let token;
-    try {
-      token = await getToken();
-    } catch (e) {
-      return { ok: false, reason: e?.code === 'network' ? 'offline' : 'login' };
-    }
+    if (signal?.aborted) return { ok: false, reason: 'skipped' };
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs); // (sem unref: no Node dos testes, este relógio é o que mantém o teste de "demora" vivo)
+    const skip = () => controller.abort();
+    signal?.addEventListener?.('abort', skip, { once: true });
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs); // (sem unref: no Node dos testes, este relógio é o que mantém o teste de "demora" vivo)
+    const gaveUp = () => ({ ok: false, reason: timedOut ? 'timeout' : 'skipped' });
     try {
+      let token;
+      try {
+        token = await until(getToken(), controller.signal); // renovar o login também é rede: também tem prazo
+      } catch (e) {
+        if (controller.signal.aborted) return gaveUp();
+        return { ok: false, reason: e?.code === 'network' ? 'offline' : 'login' };
+      }
       const res = await doFetch(`${base}/interpretar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -74,23 +106,36 @@ export function createAi({ workerUrl, getToken, isLoggedIn = () => true, prefs, 
       if (res.status === 503) return { ok: false, reason: 'unavailable' };
       if (!res.ok) return { ok: false, reason: 'error' };
       const data = await res.json().catch(() => null);
+      if (controller.signal.aborted) return gaveUp();
       if (!data || typeof data.texto !== 'string' || !Array.isArray(data.duvidas)) return { ok: false, reason: 'error' };
       return { ok: true, texto: data.texto, duvidas: data.duvidas.filter((d) => typeof d === 'string' && d.trim()).slice(0, 3) };
     } catch (e) {
-      return { ok: false, reason: e?.name === 'AbortError' ? 'timeout' : 'offline' };
+      if (controller.signal.aborted || e?.name === 'AbortError') return gaveUp();
+      return { ok: false, reason: 'offline' };
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener?.('abort', skip);
     }
   }
 
   return {
     get on() { return isOn(); },
     /** Liga ou desliga neste aparelho. */
-    setOn(on) { prefs?.set(on ? 'on' : 'off'); },
+    setOn(on) {
+      choice = on ? 'on' : 'off';
+      try { prefs?.set(choice); } catch { /* o aparelho não deixou guardar: a escolha vale até fechar o app */ }
+    },
     /** O que impede (ou não) de usar a IA agora. */
     status() { return { on: isOn(), configured: configured(), loggedIn: isLoggedIn(), online: online() }; },
     /** Ligada e com tudo o que precisa (serviço, login, internet). */
     available() { return isOn() && configured() && isLoggedIn() && online(); },
+    /** A IA está ligada só porque é o padrão (a pessoa nunca escolheu) e o aviso do primeiro uso ainda não foi mostrado. */
+    needsNotice() { return isOn() && ownChoice() === null && !shown && !notice?.get(); },
+    /** O aviso do primeiro uso foi mostrado. */
+    noticed() {
+      shown = true;
+      try { notice?.set(); } catch { /* idem: o aviso sai uma vez por sessão */ }
+    },
     rewrite,
   };
 }
@@ -107,14 +152,44 @@ const EVIDENCE = {
   label: /etiqueta|#|categoria|marcador|\btag\b/,
 };
 
+// ---------- o título só pode ter o que a pessoa disse ----------
+// Palavras de ligação (artigos, preposições...): a IA pode usá-las à vontade ("pra" -> "para", "pro" -> "para o").
+const FUNCTION_WORDS = new Set(['uma', 'uns', 'umas', 'dos', 'das', 'nos', 'nas', 'aos', 'pelo', 'pela', 'pelos', 'pelas', 'para', 'pra', 'pro', 'por', 'com', 'sem',
+  'que', 'seu', 'sua', 'seus', 'suas', 'meu', 'minha', 'meus', 'minhas', 'ali', 'aqui', 'mais']);
+const NUMBER_ONLY = new RegExp(`^${NUMBER_WORD}$`);
+const wordsOf = (text) => fold(String(text ?? '')).split(/[^a-z0-9]+/).filter(Boolean);
+// mesma palavra, ou da mesma família (reunião/reuniões, ligar/ligando: os 4 primeiros caracteres)
+const sameWord = (a, b) => a === b || (a.length >= 4 && b.length >= 4 && a.slice(0, 4) === b.slice(0, 4));
+
+/**
+ * Todas as palavras de conteúdo do título (`title`) foram ditas na fala (`heard`)? A IA pode TIRAR palavras (hesitações, o pedido) e
+ * trocar as de ligação, mas não acrescentar nem trocar por outras ("Marcar consulta no dentista" para "marcar dentista" não vale).
+ */
+export function isLiteral(title, heard) {
+  const spoken = wordsOf(heard);
+  const digits = /\d/.test(String(heard ?? ''));
+  const numberWords = spoken.some((w) => NUMBER_ONLY.test(w));
+  for (const w of wordsOf(title)) {
+    if (/^\d+$/.test(w)) { // número no título: "2" vale se a fala tinha número, em algarismos ou por extenso
+      if (digits || numberWords) continue;
+      return false;
+    }
+    if (w.length <= 2 || FUNCTION_WORDS.has(w)) continue;
+    if (NUMBER_ONLY.test(w) && digits) continue; // "dois" no título, "2" na fala
+    if (!spoken.some((s) => sameWord(w, s))) return false;
+  }
+  return true;
+}
+
 /**
  * Junta a linha da IA com o que as regras do aparelho entenderam da fala:
  *  - tira da linha da IA o que ela inventou (dia, hora, prioridade, repetição, lembrete ou etiqueta sem nenhum sinal na fala);
+ *  - se o título da IA tem palavras que a pessoa não disse, vale o título das regras (o que foi dito);
  *  - acrescenta o que as regras acharam na fala e a IA deixou cair (ex.: a hora);
  *  - se os dois dizem a mesma coisa de formas diferentes, vale a IA (ela entende frases que as regras não alcançam).
  * @param {string} aiText   a linha devolvida pela IA
  * @param {string} heard    o que a pessoa falou
- * @param {{tokens?: object[]}} local   o resultado de interpretSpoken(heard)
+ * @param {{title?: string, tokens?: object[]}} local   o resultado de interpretSpoken(heard)
  * @returns {string} uma linha no formato de "adicionar tarefa", pronta para interpretSpoken
  */
 export function reconcile(aiText, heard, local, { today, now, weekStart = 1 } = {}) {
@@ -129,7 +204,13 @@ export function reconcile(aiText, heard, local, { today, now, weekStart = 1 } = 
   }
   line = line.replace(/\s+/g, ' ').trim();
 
-  const after = read();
+  let after = read();
+  if (after.title && !isLiteral(after.title, f)) { // palavras que a pessoa não disse: vale o título que as regras tiraram da fala
+    const kept = after.tokens.filter((t) => !t.derived && t.text).map((t) => t.text);
+    line = [String(local?.title ?? '').trim(), ...kept].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    after = read();
+  }
+
   const has = new Set(after.tokens.filter((t) => !t.derived).map((t) => t.type));
   const labels = new Set(after.labels.map(fold));
   const extra = [];

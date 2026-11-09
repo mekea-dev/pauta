@@ -1,6 +1,8 @@
 // O serviço de lembretes (worker/lembretes.js): pedidos do app, assinatura VAPID e o "relógio" que toca nos aparelhos.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { isLiteral } from '../js/ai.js';
+import { parseQuickAdd } from '../js/parser.js';
 import {
   buildMessages, cleanAiOutput, cleanReminders, createKeyStore, createMemoryRepo, getVapid, handleRequest, isPushEndpoint, runScheduled, sha256Hex,
   vapidAuthorization, verifyFirebaseToken,
@@ -488,6 +490,23 @@ test('pedido à IA: instruções, exemplos e a frase por último em JSON (instru
     assert.ok(Array.isArray(certo.duvidas));
   }
   assert.ok(exemplos.length >= 10, 'há exemplos suficientes para o modelo aprender o formato');
+});
+
+test('pedido à IA: manda usar SÓ o que foi dito, e os exemplos do próprio pedido obedecem a essa regra', () => {
+  const m = buildMessages({ fala: 'x', hoje: '2026-11-10', agora: '09:05' });
+  assert.match(m[0].content, /SÓ as palavras que a pessoa disse/);
+  assert.match(m[0].content, /NUNCA invente/);
+  const opts = { today: '2026-11-09', now: new Date(2026, 10, 9, 14, 35), weekStart: 1 };
+  const exemplos = m.slice(1, -1);
+  let conferidos = 0;
+  for (let i = 0; i < exemplos.length; i += 2) {
+    const fala = JSON.parse(exemplos[i].content).fala;
+    const { texto } = JSON.parse(exemplos[i + 1].content);
+    const titulo = parseQuickAdd(texto, opts).title;
+    assert.ok(isLiteral(titulo, fala), `o exemplo "${texto}" tem palavra que a fala "${fala}" não tem`);
+    conferidos += 1;
+  }
+  assert.ok(conferidos >= 10);
 });
 
 test('cleanAiOutput: aceita objeto ou texto, recusa o resto', () => {

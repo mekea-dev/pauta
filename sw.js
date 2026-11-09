@@ -2,7 +2,7 @@
 // Estratégia: rede primeiro (quando há internet você sempre recebe a versão mais nova, que é
 // revalidada a cada abertura) e, sem rede, a cópia guardada. Os dados das tarefas NÃO passam por aqui:
 // ficam no localStorage da página.
-const VERSION = '1.6.0'; // manter igual a APP_VERSION em js/config.js (há um teste que confere)
+const VERSION = '1.7.0'; // manter igual a APP_VERSION em js/config.js (há um teste que confere)
 const CACHE = `pauta-${VERSION}`;
 
 // Todo arquivo novo do app precisa entrar nesta lista (o teste tests/sw.test.js avisa se faltar).

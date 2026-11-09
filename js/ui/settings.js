@@ -5,6 +5,7 @@ import { formatStamp } from '../dates.js';
 import { backupFileName, exportJSON, mergeState, parseImport, toCSV } from '../io.js';
 import { LABEL_COLORS, LABEL_COLOR_NAMES } from '../model.js';
 import { counts } from '../query.js';
+import { formatSpeechReport } from '../speech.js';
 import { plural } from '../text.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
@@ -33,7 +34,9 @@ export function createSettings(app) {
   let alertsStatus = null; // { text, bad } resultado da última ação na seção de avisos
   let aiBusy = false;
   let aiStatus = null; // { text, bad } resultado do último teste da IA
-  dlg.addEventListener('close', () => { paletteFor = null; status = null; alertsStatus = null; aiStatus = null; });
+  let micStatus = null; // { text } resultado de "Copiar relatório do microfone"
+  let micText = null; // o relatório, para copiar à mão quando o aparelho não deixa copiar sozinho
+  dlg.addEventListener('close', () => { paletteFor = null; status = null; alertsStatus = null; aiStatus = null; micStatus = null; micText = null; });
   app.alerts.onChange(() => { if (dlg.open) render(); });
 
   const say = (text, bad = false) => { status = { text, bad }; render(); };
@@ -149,12 +152,43 @@ export function createSettings(app) {
     else if (s.on && !s.online) note = 'Sem internet agora: sem a IA, o app entende a fala com as regras do aparelho.';
     return h('section', { class: 'st-section', id: 'st-ia' },
       h('h3', {}, 'Entender a fala com IA'),
-      h('p', { class: 'muted' }, 'Ao falar uma tarefa, o Pauta já entende a frase sozinho, por regras, aqui no aparelho. Com a IA ligada, a frase falada (só o texto) é enviada ao serviço do Pauta na Cloudflare, que usa uma IA para reescrevê-la como tarefa: título limpo, dia, hora, lembrete. O serviço não guarda a frase. Desligada, nada do que você fala sai do aparelho.'),
+      h('p', { class: 'muted' }, 'Ao falar uma tarefa, o Pauta entende a frase aqui no aparelho, por regras. Com a IA ligada (é o padrão), a frase falada (só o texto) também vai ao serviço do Pauta na Cloudflare, que usa uma IA para organizá-la como tarefa: título limpo, dia, hora, lembrete. A IA só pode usar o que você disse: o que ela inventar é descartado. O serviço não guarda a frase. Desligada, nada do que você fala sai do aparelho.'),
       h('label', { class: 'st-row switch-row' }, h('span', {}, 'Usar a IA neste aparelho'), toggle),
       note ? h('p', { class: 'muted' }, note) : null,
       s.on && usable ? h('div', { class: 'btn-row' }, h('button', { class: 'btn btn-sm', type: 'button', disabled: aiBusy, onclick: testAi }, icon('check', 15), aiBusy ? 'Testando…' : 'Testar a IA')) : null,
       aiStatus ? h('p', { class: `status${aiStatus.bad ? ' bad' : ''}`, role: 'status' }, aiStatus.text) : null,
-      h('p', { class: 'muted' }, 'Se a IA falhar (sem internet, limite grátis do dia, serviço fora do ar), o app avisa e usa as regras do aparelho: a IA nunca é necessária.'));
+      h('p', { class: 'muted' }, 'Se a IA falhar (sem internet, limite grátis do dia, serviço fora do ar) ou demorar, o app avisa e usa as regras do aparelho: a IA nunca é necessária.'));
+  }
+
+  // ---------- relatório do microfone ----------
+  /** Copia o relatório do último uso do microfone (horários e códigos, nunca o que foi falado); se o aparelho não deixar, mostra o texto para copiar à mão. */
+  async function copyMicReport() {
+    const report = app.composer.speechReport();
+    if (!report || !report.events?.length) {
+      micStatus = { text: 'Ainda não há o que relatar: use o microfone do app e volte aqui.' };
+      micText = null;
+      render();
+      return;
+    }
+    const text = formatSpeechReport(report, APP_VERSION);
+    try {
+      await navigator.clipboard.writeText(text);
+      micStatus = { text: 'Relatório copiado. Cole numa mensagem para quem cuida do app.' };
+      micText = null;
+    } catch {
+      micStatus = { text: 'Não consegui copiar sozinho: toque no texto abaixo, selecione tudo, copie e cole numa mensagem.' };
+      micText = text;
+    }
+    render();
+  }
+
+  function micSection() {
+    return h('section', { class: 'st-section', id: 'st-microfone' },
+      h('h3', {}, 'Problemas com o microfone?'),
+      h('p', { class: 'muted' }, 'Se o microfone do app travar ou não entender, toque em “Copiar relatório” logo depois e cole numa mensagem para quem cuida do app. O relatório tem só horários e códigos do que o microfone fez (como “começou a ouvir” e “terminou”), nunca o que você falou.'),
+      h('div', { class: 'btn-row' }, h('button', { class: 'btn btn-sm', type: 'button', onclick: copyMicReport }, icon('mic', 15), 'Copiar relatório do microfone')),
+      micStatus ? h('p', { class: 'status', role: 'status' }, micStatus.text) : null,
+      micText ? h('textarea', { class: 'input report-box', readonly: true, rows: 8, 'aria-label': 'Relatório do microfone', onfocus: (e) => e.target.select() }, micText) : null);
   }
 
   function labelRow(l, n) {
@@ -311,7 +345,7 @@ export function createSettings(app) {
         h('h2', { id: 'st-title', class: 'dialog-title' }, 'Configurações'),
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fechar', onclick: () => dlg.close() }, icon('x', 20))),
       h('div', { class: 'settings-scroll' },
-        app.account.section(), prefsSection(settings), alertsSection(), aiSection(), labelsSection(labels, c), dataSection(settings), installSection(), shortcutsSection(),
+        app.account.section(), prefsSection(settings), alertsSection(), aiSection(), micSection(), labelsSection(labels, c), dataSection(settings), installSection(), shortcutsSection(),
         h('p', { class: 'about muted' }, `${APP_NAME} v${APP_VERSION} · feito para rodar no GitHub Pages, sem servidor e sem rastreamento.`))));
     dlg.querySelector('.settings-scroll').scrollTop = top;
   }

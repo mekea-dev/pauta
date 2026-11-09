@@ -624,6 +624,7 @@ a.chip.lbl:hover { background: color-mix(in srgb, var(--lc) 22%, transparent); }
 .btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .status { margin-top: 10px; padding: 8px 12px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); font-size: 14px; font-weight: 560; }
 .status.bad { background: var(--danger-soft); color: var(--danger); }
+.report-box { display: block; width: 100%; height: auto; margin-top: 10px; padding: 8px 10px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; resize: vertical; }
 .danger-zone { margin-top: 14px; }
 .shortcuts { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 0; }
 .shortcuts dt { display: flex; gap: 4px; }

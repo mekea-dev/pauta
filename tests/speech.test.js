@@ -1,7 +1,7 @@
 // Microfone: o reconhecimento de voz do navegador, aqui trocado por um de mentira que o teste "fala" por ele.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSpeech, createSpeechMemory, describeSpeechError, isIosHomeScreenApp } from '../js/speech.js';
+import { createSpeech, createSpeechMemory, describeSpeechError, formatSpeechReport, isIos, isIosHomeScreenApp } from '../js/speech.js';
 
 const PC = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36';
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1';
@@ -36,6 +36,21 @@ function fakeEnv({ ua = PC, standalone = false, displayStandalone = false, withA
   if (withApi) env.webkitSpeechRecognition = Recognition;
   return { env, made };
 }
+
+/** O `document` da página, só com o que o microfone usa: avisar quando a página vai para segundo plano. */
+const fakeDocument = () => {
+  const handlers = new Set();
+  return {
+    visibilityState: 'visible',
+    addEventListener: (type, fn) => { if (type === 'visibilitychange') handlers.add(fn); },
+    removeEventListener: (type, fn) => { handlers.delete(fn); },
+    hide() {
+      this.visibilityState = 'hidden';
+      for (const fn of [...handlers]) fn();
+    },
+    get listeners() { return handlers.size; },
+  };
+};
 
 const fakeStorage = () => {
   const m = new Map();
@@ -483,4 +498,219 @@ test('memória da recusa: grava e lê no armazenamento do aparelho; lixo ou arma
   listen(speech);
   refuse(made[0], 'service-not-allowed');
   assert.equal(speech.usable, false);
+});
+
+// ---------- iPhone: o microfone nunca fica preso ----------
+test('isIos: iPhone, iPad e iPad que se apresenta como Mac (não o Mac de verdade nem o computador)', () => {
+  assert.equal(isIos(fakeEnv({ ua: IPHONE }).env), true);
+  assert.equal(isIos(fakeEnv({ ua: IPHONE, standalone: true }).env), true);
+  assert.equal(isIos(fakeEnv().env), false);
+  assert.equal(isIos({ navigator: { userAgent: 'Macintosh', platform: 'MacIntel', maxTouchPoints: 5 } }), true);
+  assert.equal(isIos({ navigator: { userAgent: 'Macintosh', platform: 'MacIntel', maxTouchPoints: 0 } }), false);
+  assert.equal(isIos({}), false);
+});
+
+test('iPhone: o reconhecimento não é contínuo (o modo contínuo do Safari é instável) e o app junta as rodadas sozinho', async () => {
+  const { env, made } = fakeEnv({ ua: IPHONE });
+  const speech = createSpeech(env, { restartMs: 5 });
+  const { log } = listen(speech);
+  const rec = made[0];
+  assert.equal(rec.continuous, false);
+  rec.onstart();
+  rec.say({ text: 'comprar pão', final: true });
+  rec.onend(); // o iPhone terminou a rodada no primeiro silêncio
+  assert.equal(speech.listening, true, 'continua ouvindo');
+  await sleep(40);
+  assert.equal(rec.starts, 2, 'começou outra rodada sozinho');
+  rec.say({ text: 'e leite', final: true });
+  speech.stop();
+  assert.deepEqual(log.final, ['comprar pão e leite']);
+  assert.equal(log.ended, 1);
+  const pc = fakeEnv();
+  listen(createSpeech(pc.env));
+  assert.equal(pc.made[0].continuous, true, 'no computador e no Android continua contínuo');
+});
+
+test('mandar parar e o navegador nunca terminar: o app termina por ele no prazo (no iPhone o prazo é mais curto que no computador)', async () => {
+  for (const ua of [PC, IPHONE]) {
+    const { env, made } = fakeEnv({ ua, mute: true });
+    const speech = createSpeech(env, { stopGraceMs: 20 });
+    const { log } = listen(speech);
+    made[0].onstart();
+    made[0].say({ text: 'comprar pão', final: false });
+    speech.stop();
+    assert.equal(speech.listening, true, 'espera um pouco pelo navegador');
+    await sleep(70);
+    assert.equal(speech.listening, false, ua);
+    assert.deepEqual(log.final, ['comprar pão']);
+    assert.equal(log.ended, 1);
+    assert.equal(made[0].aborted, true, 'o app larga o microfone');
+  }
+});
+
+test('pedir para parar de novo (passado um instante) termina na hora, sem esperar o prazo; cedo demais não vale', async () => {
+  const { env, made } = fakeEnv({ mute: true });
+  const speech = createSpeech(env, { stopGraceMs: 5000, forceStopMs: 30 });
+  const { log } = listen(speech);
+  made[0].onstart();
+  made[0].say({ text: 'comprar pão', final: false });
+  speech.stop();
+  speech.stop(); // cedo demais: o navegador ainda pode entregar o final
+  assert.equal(speech.listening, true);
+  await sleep(50);
+  speech.stop(); // passado o instante: "não espere mais"
+  assert.equal(speech.listening, false);
+  assert.deepEqual(log.final, ['comprar pão']);
+  assert.equal(log.ended, 1);
+});
+
+test('se a entrega do texto der erro, o fim ainda é avisado (a tela nunca fica presa em "ouvindo")', () => {
+  const { env, made } = fakeEnv();
+  const speech = createSpeech(env);
+  const ended = [];
+  const consoleError = console.error;
+  console.error = () => {}; // o erro é de propósito
+  try {
+    speech.start({ onFinal: () => { throw new Error('boom'); }, onEnd: (info) => ended.push(info) });
+    made[0].say({ text: 'comprar pão', final: true });
+    speech.stop();
+  } finally {
+    console.error = consoleError;
+  }
+  assert.equal(ended.length, 1);
+  assert.equal(ended[0].text, 'comprar pão');
+  assert.equal(speech.listening, false);
+  // e um erro no próprio aviso do fim também não deixa o microfone preso
+  const outro = fakeEnv();
+  const s2 = createSpeech(outro.env);
+  console.error = () => {};
+  try {
+    s2.start({ onEnd: () => { throw new Error('boom'); } });
+    outro.made[0].say({ text: 'x', final: true });
+    s2.stop();
+  } finally {
+    console.error = consoleError;
+  }
+  assert.equal(s2.listening, false);
+});
+
+test('deu erro e o navegador nunca avisa o fim: o app termina por ele (o microfone não fica "ouvindo" para sempre)', async () => {
+  const { env, made } = fakeEnv({ mute: true });
+  const speech = createSpeech(env, { errorGraceMs: 20 });
+  const { log } = listen(speech);
+  made[0].onstart();
+  made[0].onerror({ error: 'network' }); // sem onend
+  assert.deepEqual(log.errors, ['network']);
+  assert.equal(speech.listening, true);
+  await sleep(70);
+  assert.equal(log.ended, 1);
+  assert.equal(log.endInfo.failed, true);
+  assert.equal(speech.listening, false);
+  assert.equal(speech.usable, true, 'falha de rede não bloqueia o microfone');
+});
+
+test('iPhone: a página vai para segundo plano ouvindo -> o app larga o microfone, não entrega nada e o texto fica no campo', () => {
+  const { env, made } = fakeEnv({ ua: IPHONE });
+  env.document = fakeDocument();
+  const speech = createSpeech(env);
+  const { log } = listen(speech);
+  made[0].onstart();
+  made[0].say({ text: 'comprar pão', final: false });
+  assert.equal(env.document.listeners, 1);
+  env.document.hide();
+  assert.equal(speech.listening, false);
+  assert.deepEqual(log.final, [], 'nada é criado enquanto a pessoa não está olhando');
+  assert.deepEqual(log.interim, ['comprar pão'], 'o texto já estava no campo');
+  assert.equal(log.endInfo.canceled, true);
+  assert.equal(made[0].aborted, true);
+  assert.equal(env.document.listeners, 0, 'o aviso é desligado no fim');
+});
+
+test('iPhone: página escondida ANTES de o microfone dar sinal de vida (aviso de permissão do sistema) não derruba a sessão', () => {
+  const { env, made } = fakeEnv({ ua: IPHONE });
+  env.document = fakeDocument();
+  const speech = createSpeech(env);
+  listen(speech);
+  env.document.hide();
+  assert.equal(speech.listening, true);
+  made[0].onstart();
+  speech.cancel();
+  assert.equal(env.document.listeners, 0);
+});
+
+test('no computador, mudar de aba não mexe no microfone', () => {
+  const { env, made } = fakeEnv();
+  env.document = fakeDocument();
+  const speech = createSpeech(env);
+  listen(speech);
+  made[0].onstart();
+  assert.equal(env.document.listeners, 0);
+  env.document.hide();
+  assert.equal(speech.listening, true);
+  speech.cancel();
+});
+
+// ---------- o relatório do microfone ----------
+test('relatório: linha do tempo com horários e nomes, NUNCA o texto falado; fica guardada no aparelho', () => {
+  const storage = fakeStorage();
+  const { env, made } = fakeEnv({ ua: IPHONE, standalone: true });
+  const speech = createSpeech(env, { memory: createSpeechMemory(storage) });
+  assert.equal(speech.report(), null, 'antes de usar o microfone não há o que relatar');
+  listen(speech);
+  made[0].onstart();
+  made[0].say({ text: 'segredo do cartão 1234', final: true, confidence: 0.9 });
+  speech.note('ai-start');
+  speech.note('ai-end', 'timeout');
+  speech.stop();
+  const report = speech.report();
+  assert.equal(report.meta.ios, true);
+  assert.equal(report.meta.standalone, true);
+  assert.equal(report.meta.continuous, false);
+  assert.equal(report.meta.lang, 'pt-BR');
+  assert.equal(report.meta.ua, IPHONE);
+  const names = report.events.map((e) => e.e);
+  for (const name of ['start', 'start-round', 'onstart', 'result', 'ai-start', 'ai-end', 'stop', 'finish']) assert.ok(names.includes(name), name);
+  assert.deepEqual(report.events.find((e) => e.e === 'ai-end').d, 'timeout');
+  assert.deepEqual(report.events.find((e) => e.e === 'result').d, { n: 1, chars: 22, final: true });
+  assert.ok(report.events.every((e, i, all) => Number.isFinite(e.t) && (i === 0 || e.t >= all[i - 1].t)), 'tempos em ordem');
+
+  const text = formatSpeechReport(report, '9.9.9');
+  assert.match(text, /^Pauta 9\.9\.9 - relatório do microfone/);
+  assert.match(text, /modo contínuo: não/);
+  assert.match(text, /\+\d+ ms {2}finish/);
+  assert.ok(!/segredo|cartão|1234/.test(JSON.stringify(report) + text), 'o que foi falado não entra no relatório');
+
+  const reaberto = createSpeech(fakeEnv().env, { memory: createSpeechMemory(storage) }); // o app foi fechado e aberto de novo
+  assert.deepEqual(reaberto.report().events.map((e) => e.e), names, 'o último relatório sobrevive ao fechamento do app');
+});
+
+test('relatório: tem tamanho limitado (os primeiros eventos ficam, os do meio saem) e quase não repete "chegou texto"', () => {
+  const { env, made } = fakeEnv();
+  const speech = createSpeech(env);
+  listen(speech);
+  for (let i = 0; i < 30; i += 1) made[0].say({ text: `palavra ${i}`, final: false });
+  assert.equal(speech.report().events.filter((e) => e.e === 'result').length, 1, 'trinta textos seguidos viram um só evento');
+  for (let i = 0; i < 400; i += 1) speech.note('x', i);
+  const report = speech.report();
+  assert.equal(report.events.length, 160);
+  assert.ok(report.dropped >= 240);
+  assert.equal(report.events[0].e, 'start', 'o começo da sessão nunca sai');
+  assert.equal(report.events.at(-1).d, 399, 'e o fim também fica');
+  speech.cancel();
+});
+
+test('memória do relatório: lixo ou armazenamento quebrado não derrubam nada', () => {
+  const storage = fakeStorage();
+  const memory = createSpeechMemory(storage);
+  assert.equal(memory.readLog(), null);
+  memory.saveLog({ meta: {}, events: [{ t: 0, e: 'start' }], dropped: 0 });
+  assert.equal(memory.readLog().events[0].e, 'start');
+  storage.setItem('pauta:voz-log', '{lixo');
+  assert.equal(memory.readLog(), null);
+  storage.setItem('pauta:voz-log', JSON.stringify({ semEventos: true }));
+  assert.equal(memory.readLog(), null);
+  const quebrado = createSpeechMemory({ getItem() { throw new Error('bloqueado'); }, setItem() { throw new Error('bloqueado'); } });
+  assert.equal(quebrado.readLog(), null);
+  quebrado.saveLog({ events: [] });
+  assert.equal(formatSpeechReport(null, '1'), 'Pauta 1 - relatório do microfone (sem data)\naparelho: ?\niPhone ou iPad: não | app na Tela de Início: não | modo contínuo: não | idioma: ?');
 });

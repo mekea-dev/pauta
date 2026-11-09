@@ -1,9 +1,10 @@
 // Campo de adição rápida: escreva "Reunião sexta 14h !alta #trabalho" e veja o que foi entendido.
 // Também aceita fala: o microfone (ou o ditado do teclado do iPhone) escreve o pedido e o app cria a tarefa. O microfone ouve até a
-// pessoa tocar nele de novo (ou apertar Enter). Se a fala não ficou clara (sem título, hora que não deu para entender...), o app não
-// chuta: abre o editor com o que entendeu já preenchido e o resto em branco (js/ui/editor.js, openDraft).
-// Com "Entender a fala com IA" ligada nas Configurações, o texto falado passa antes por uma IA que o reescreve (js/ai.js); sem ela, ou se ela
-// falhar, valem as regras do aparelho (js/voice.js).
+// pessoa mandar parar ("Parar e enviar", tocar nele de novo ou apertar Enter). Se a fala não ficou clara (sem título, hora que não deu
+// para entender...), o app não chuta: abre o editor com o que entendeu já preenchido e o resto em branco (js/ui/editor.js, openDraft).
+// Com "Entender a fala com IA" ligada (é o padrão; as Configurações desligam), o texto falado passa antes por uma IA que o reescreve usando
+// só o que foi dito (js/ai.js); sem ela, ou se ela falhar ou demorar, valem as regras do aparelho (js/voice.js). A tela nunca fica presa
+// esperando: o microfone termina sozinho (js/speech.js) e a espera da IA tem prazo e um botão "Pular a IA".
 import { describeAiFailure, reconcile } from '../ai.js';
 import { WEEKDAYS_SHORT, capitalize, diffDays, relativeDay, weekday } from '../dates.js';
 import { priorityLabel } from '../model.js';
@@ -26,6 +27,7 @@ const EXAMPLES = [
   'Revisar relatório hoje 16h !urgente',
 ];
 
+const NO_WORDS_MS = 8000; // microfone ligado e nenhuma palavra por tanto tempo: avisa
 const KEYBOARD_HELP = 'Toque no microfone do teclado e fale, por exemplo: “crie uma tarefa pagar boleto para dia 10 às 16 horas”. Depois toque em Adicionar.';
 const BLOCKED_NOTE = 'O microfone do app não está disponível neste aparelho (no iPhone, o modo app costuma bloquear). Use o microfone do teclado: toque nele, fale e depois toque em Adicionar.';
 
@@ -37,10 +39,12 @@ export function createComposer(app) {
   let ctx = { date: null, labelId: null, priority: 0, hidden: false };
   // o texto do campo veio da fala (ou vai vir do ditado do teclado): lê como pedido falado ("crie uma tarefa... com prazo para dia 10")
   let spoken = false;
-  // IA (opcional): a linha do campo passa a ser a reescrita dela; `aiExtra` guarda o que foi dito de verdade e as dúvidas que ela apontou
+  // IA: a linha do campo passa a ser a reescrita dela; `aiExtra` guarda o que foi dito de verdade e as dúvidas que ela apontou
   let aiExtra = null; // { heard, doubts }
   let aiRead = false; // a IA já leu o texto que está no campo (não pede de novo)
   let waiting = null; // o texto que está esperando a resposta da IA
+  let aiAbort = null; // o pedido à IA em andamento (abortar = pular a IA)
+  let noWordsTimer = 0; // avisa quando o microfone está ligado mas nenhuma palavra apareceu
   let placeholder = `Nova tarefa… ex.: ${EXAMPLES[0]}`;
 
   /** O texto do campo mudou por conta da pessoa (ou foi limpo): a leitura da IA, se havia, não vale mais. */
@@ -48,6 +52,8 @@ export function createComposer(app) {
     aiExtra = null;
     aiRead = false;
     waiting = null;
+    aiAbort?.abort(); // se a IA ainda estava respondendo, abandona o pedido
+    aiAbort = null;
     if (addBtn) addBtn.disabled = false;
   };
 
@@ -113,13 +119,31 @@ export function createComposer(app) {
     micBtn.setAttribute('aria-label', label);
     micBtn.title = label;
     input.placeholder = on ? 'Ouvindo… diga a tarefa' : placeholder;
-    if (on) showNote('Ouvindo… fale à vontade. Quando terminar, toque no microfone de novo ou aperte Enter.', 'listening');
-    else if (note.dataset.kind === 'listening') clearNote();
+    clearTimeout(noWordsTimer);
+    if (on) {
+      // o botão do recado é o jeito mais claro de terminar (no iPhone o teclado nem aparece, então não há Enter)
+      showNote('Ouvindo… fale à vontade.', 'listening', { label: 'Parar e enviar', onClick: () => stopListening() });
+      noWordsTimer = setTimeout(noWordsYet, NO_WORDS_MS);
+    } else if (note.dataset.kind === 'listening') {
+      clearNote();
+    }
   }
 
-  /** Terminei de falar: o navegador entrega o que faltava e a tarefa é entendida (finishVoice). */
+  /** O microfone está ligado há um tempo e nenhuma palavra apareceu: pode ser que o reconhecimento não funcione aqui. */
+  function noWordsYet() {
+    if (!speech.listening || input.value.trim() || note.dataset.kind !== 'listening') return;
+    speech.note('no-words');
+    showNote('Ainda não apareceu nenhuma palavra.', 'listening', {
+      label: 'Usar o microfone do teclado',
+      onClick: () => { speech.cancel(); startKeyboardDictation(); },
+    });
+  }
+
+  /** Terminei de falar: o navegador entrega o que faltava e a tarefa é entendida (finishVoice). Tocar de novo não espera mais. */
   function stopListening() {
-    showNote('Entendendo o que você falou…', 'listening'); // antes do stop: se o fim vier na hora, o recado sai junto
+    clearTimeout(noWordsTimer);
+    speech.note('ui-stop');
+    showNote('Entendendo o que você falou…', 'listening', { label: 'Enviar agora', onClick: () => speech.stop() }); // antes do stop: se o fim vier na hora, o recado sai junto
     speech.stop();
   }
 
@@ -172,6 +196,7 @@ export function createComposer(app) {
 
   /** Abre o editor com a tarefa que foi entendida (`p`, de interpretSpoken): o que não ficou claro fica em branco ou marcado. */
   function openDraft(p) {
+    speech.note('draft', p.issues.map((i) => i.code));
     const labelIds = store.ensureLabels(p.labels);
     if (ctx.labelId && store.state.labels.some((l) => l.id === ctx.labelId) && !labelIds.includes(ctx.labelId)) labelIds.push(ctx.labelId);
     const fields = {
@@ -256,28 +281,51 @@ export function createComposer(app) {
   }
 
   /**
-   * Pede à IA (se estiver ligada e disponível) que reescreva o texto falado e põe a reescrita no campo.
+   * Pede à IA (se estiver ligada e disponível) que reescreva o texto falado e põe a reescrita no campo. Tem prazo (js/ai.js) e a
+   * pessoa pode pular a espera; nada aqui deixa a tela presa. Se a IA não servir, o texto fica como a pessoa falou e valem as regras.
    * Devolve false se a pessoa mexeu no campo enquanto esperava (aí não se faz mais nada com a resposta).
    */
   async function understandWithAi() {
     const heard = input.value;
+    const controller = new AbortController();
     waiting = heard;
+    aiAbort = controller;
     addBtn.disabled = true;
-    showNote('Entendendo com IA…', 'ai'); // o tipo "ai" (e não "listening") para o fim do microfone não apagar o recado
+    if (app.ai.needsNotice()) { // ligada só porque é o padrão: no primeiro uso, avisa o que acontece com a frase falada
+      app.ai.noticed();
+      toast('A IA está ligada para entender melhor o que você fala: só o texto falado vai ao serviço do Pauta, que não o guarda. Para desligar, vá em Configurações.', { timeout: 10000 });
+    }
+    // o tipo "ai" (e não "listening") para o fim do microfone não apagar o recado
+    showNote('Entendendo com IA…', 'ai', { label: 'Pular a IA', onClick: () => controller.abort() });
+    speech.note('ai-start');
     const today = store.today();
     const now = new Date();
     const weekStart = store.state.settings.weekStart;
-    const local = interpretSpoken(heard, { today, now, weekStart, ignore });
-    const r = await app.ai.rewrite(heard, { today, now });
+    let r = { ok: false, reason: 'error' };
+    let local = null;
+    try {
+      local = interpretSpoken(heard, { today, now, weekStart, ignore });
+      r = await app.ai.rewrite(heard, { today, now, signal: controller.signal });
+    } catch {
+      r = { ok: false, reason: 'error' };
+    } finally {
+      if (aiAbort === controller) aiAbort = null;
+    }
+    speech.note('ai-end', r.ok ? 'ok' : r.reason);
     if (input.value !== heard) return false; // a pessoa digitou, limpou ou falou de novo: esta resposta ficou velha
     waiting = null;
     addBtn.disabled = false;
     if (note.dataset.kind === 'ai') clearNote();
     aiRead = true;
     if (r.ok) {
-      aiExtra = { heard, doubts: r.duvidas };
-      input.value = reconcile(r.texto, heard, local, { today, now, weekStart });
-    } else {
+      try {
+        const line = reconcile(r.texto, heard, local, { today, now, weekStart });
+        aiExtra = { heard, doubts: r.duvidas };
+        input.value = line;
+      } catch {
+        aiExtra = null; // a resposta não deu para usar: ficam as palavras que a pessoa falou
+      }
+    } else if (r.reason !== 'skipped') {
       toast(`${describeAiFailure(r.reason)} Usei o jeito normal.`);
     }
     return true;
@@ -285,8 +333,23 @@ export function createComposer(app) {
 
   async function submit({ byVoice = false, confidence = null } = {}) {
     speech.cancel();
-    if (waiting !== null && waiting === input.value) return; // o mesmo texto já está esperando a IA
-    if (spoken && input.value.trim() && !aiRead && app.ai.available() && !(await understandWithAi())) return;
+    if (waiting !== null && waiting === input.value) {
+      aiAbort?.abort(); // já está esperando a IA: apertar de novo quer dizer "não espere mais"
+      return;
+    }
+    if (spoken && input.value.trim() && !aiRead && app.ai.available()) {
+      let go = true;
+      try {
+        go = await understandWithAi();
+      } catch {
+        // a tela nunca fica presa esperando a IA: segue com as regras do aparelho
+        waiting = null;
+        aiAbort = null;
+        addBtn.disabled = false;
+        if (note.dataset.kind === 'ai') clearNote();
+      }
+      if (!go) return;
+    }
     finishSubmit({ byVoice, confidence });
   }
 
@@ -312,6 +375,7 @@ export function createComposer(app) {
       title: spoken ? capitalizeTitle(p.title) : p.title, date, time: p.time, remind: p.remind, priority: p.priority ?? ctx.priority ?? 0, labels: labelIds, recurrence: p.recurrence,
     });
     if (!task) return;
+    if (byVoice) speech.note('created');
     const remindLost = p.remind !== null && p.remind !== undefined && task.remind === null; // pediu lembrete mas a tarefa não tem hora
     input.value = '';
     ignore = {};
@@ -327,6 +391,8 @@ export function createComposer(app) {
     el: form,
     focus() { input.focus(); },
     refresh: update,
+    /** O relatório do último uso do microfone (horários e códigos, nunca o que foi falado): as Configurações o copiam. */
+    speechReport: () => speech.report(),
     /** Define onde a tarefa cai por padrão (dia aberto, etiqueta aberta...) e se o campo aparece. */
     setContext(next) {
       ctx = { date: null, labelId: null, priority: 0, hidden: false, ...next };
