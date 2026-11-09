@@ -16,6 +16,7 @@ import { normalizeSpoken } from './voice.js';
 export const AI_PREF = 'pauta:ia'; // 'on' | 'off', por aparelho (sem escolha feita = ligada)
 export const AI_NOTICE = 'pauta:ia-aviso'; // '1' depois que o aviso do primeiro uso foi mostrado neste aparelho
 const TIMEOUT_MS = 10000; // tempo TOTAL para a IA responder (conferir o login e fazer o pedido); depois disso o app segue com as regras
+const ACOES = ['criar', 'concluir', 'alterar', 'excluir']; // o que a pessoa pode pedir (o serviço só devolve "criar" a apps antigos)
 
 const REASONS = {
   off: 'A IA está desligada neste aparelho.',
@@ -98,7 +99,8 @@ export function createAi({ workerUrl, getToken, isLoggedIn = () => true, prefs, 
       const res = await doFetch(`${base}/interpretar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ fala: String(heard).slice(0, 400), hoje: today, agora: `${pad2(now.getHours())}:${pad2(now.getMinutes())}` }),
+        // `comandos`: este app sabe concluir, alterar e excluir tarefas que já existem (não é dado nenhum: só avisa o serviço)
+        body: JSON.stringify({ fala: String(heard).slice(0, 400), hoje: today, agora: `${pad2(now.getHours())}:${pad2(now.getMinutes())}`, comandos: true }),
         signal: controller.signal,
       });
       if (res.status === 401) return { ok: false, reason: 'login' };
@@ -108,7 +110,14 @@ export function createAi({ workerUrl, getToken, isLoggedIn = () => true, prefs, 
       const data = await res.json().catch(() => null);
       if (controller.signal.aborted) return gaveUp();
       if (!data || typeof data.texto !== 'string' || !Array.isArray(data.duvidas)) return { ok: false, reason: 'error' };
-      return { ok: true, texto: data.texto, duvidas: data.duvidas.filter((d) => typeof d === 'string' && d.trim()).slice(0, 3) };
+      return {
+        ok: true,
+        acao: ACOES.includes(data.acao) ? data.acao : 'criar', // serviço antigo (sem o campo): é sempre "criar"
+        texto: data.texto,
+        descricao: typeof data.descricao === 'string' ? data.descricao : '',
+        alvo: typeof data.alvo === 'string' ? data.alvo : '',
+        duvidas: data.duvidas.filter((d) => typeof d === 'string' && d.trim()).slice(0, 3),
+      };
     } catch (e) {
       if (controller.signal.aborted || e?.name === 'AbortError') return gaveUp();
       return { ok: false, reason: 'offline' };
@@ -152,6 +161,28 @@ const EVIDENCE = {
   label: /etiqueta|#|categoria|marcador|\btag\b/,
 };
 
+const WEEKDAY_WORD = /^(?:proxim[oa]\s+)?(segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/; // (texto de um item de data, sem acento)
+
+// ---------- o que fazer com a resposta ----------
+/**
+ * Confere a resposta da IA contra o que a pessoa falou e diz o que o app deve fazer:
+ *  - `criar`: `line` (a linha da tarefa, já conferida por `reconcile`) e `notes` (a descrição, só se for feita das palavras ditas);
+ *  - `concluir`, `alterar`, `excluir`: `alvo` (como a pessoa chamou a tarefa, só vale se for feito das palavras ditas) e, em
+ *    `alterar`, `line` com o que muda. Sem `alvo` que sirva, `ok: false` (o app não adivinha qual tarefa mexer).
+ * @param {{acao?: string, texto: string, descricao?: string, alvo?: string, duvidas?: string[]}} r  o resultado de `rewrite`
+ */
+export function interpretAiReply(r, heard, local, opts = {}) {
+  const doubts = Array.isArray(r.duvidas) ? r.duvidas : [];
+  if (!ACOES.includes(r.acao) || r.acao === 'criar') {
+    const descricao = String(r.descricao ?? '').trim();
+    return { acao: 'criar', ok: true, line: reconcile(r.texto, heard, local, opts), notes: descricao && isLiteral(descricao, heard) ? descricao : '', doubts };
+  }
+  const alvo = String(r.alvo ?? '').trim();
+  if (!alvo || !isLiteral(alvo, heard)) return { acao: r.acao, ok: false, doubts };
+  const line = r.acao === 'alterar' ? reconcile(r.texto, heard, local, { ...opts, change: true }) : '';
+  return { acao: r.acao, ok: true, alvo, line, doubts };
+}
+
 // ---------- o título só pode ter o que a pessoa disse ----------
 // Palavras de ligação (artigos, preposições...): a IA pode usá-las à vontade ("pra" -> "para", "pro" -> "para o").
 const FUNCTION_WORDS = new Set(['uma', 'uns', 'umas', 'dos', 'das', 'nos', 'nas', 'aos', 'pelo', 'pela', 'pelos', 'pelas', 'para', 'pra', 'pro', 'por', 'com', 'sem',
@@ -190,16 +221,22 @@ export function isLiteral(title, heard) {
  * @param {string} aiText   a linha devolvida pela IA
  * @param {string} heard    o que a pessoa falou
  * @param {{title?: string, tokens?: object[]}} local   o resultado de interpretSpoken(heard)
+ * @param {object} [options]
+ * @param {boolean} [options.change]  a linha é o que MUDA numa tarefa que já existe (alterar): título que a pessoa não disse não renomeia
+ *   e o que as regras acharam na fala NÃO volta (aquilo é sobre a tarefa antiga, não sobre a mudança)
  * @returns {string} uma linha no formato de "adicionar tarefa", pronta para interpretSpoken
  */
-export function reconcile(aiText, heard, local, { today, now, weekStart = 1 } = {}) {
+export function reconcile(aiText, heard, local, { today, now, weekStart = 1, change = false } = {}) {
   const f = fold(String(heard ?? ''));
   let line = normalizeSpoken(aiText, { now });
   const read = () => parseQuickAdd(line, { today, weekStart });
 
   for (const tk of read().tokens) {
     const evidence = EVIDENCE[tk.type];
-    if (!evidence || tk.derived || !tk.text || evidence.test(f)) continue;
+    if (!evidence || tk.derived || !tk.text) continue;
+    // o sinal é largo de propósito; só um dia da semana tem que ser o MESMO que a pessoa disse ("terça" não vale por "sexta")
+    const weekdayWord = tk.type === 'date' ? WEEKDAY_WORD.exec(fold(tk.text)) : null;
+    if (evidence.test(f) && !(weekdayWord && !f.includes(weekdayWord[1]))) continue;
     line = line.replace(tk.text, ' '); // a IA inventou: sai
   }
   line = line.replace(/\s+/g, ' ').trim();
@@ -207,9 +244,11 @@ export function reconcile(aiText, heard, local, { today, now, weekStart = 1 } = 
   let after = read();
   if (after.title && !isLiteral(after.title, f)) { // palavras que a pessoa não disse: vale o título que as regras tiraram da fala
     const kept = after.tokens.filter((t) => !t.derived && t.text).map((t) => t.text);
-    line = [String(local?.title ?? '').trim(), ...kept].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    // (alterar: sem título das regras, que seria a frase inteira: simplesmente não renomeia)
+    line = [change ? '' : String(local?.title ?? '').trim(), ...kept].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
     after = read();
   }
+  if (change) return line;
 
   const has = new Set(after.tokens.filter((t) => !t.derived).map((t) => t.type));
   const labels = new Set(after.labels.map(fold));

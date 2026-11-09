@@ -38,9 +38,9 @@ export function needsLogin(config, session) {
  * Entra (ou cria a conta) e faz a primeira sincronização.
  * Regras para os dados que já existem neste aparelho:
  *  - dados de OUTRA conta nunca são misturados: são descartados;
- *  - só as tarefas de boas-vindas e a conta já tem dados: vale a conta;
+ *  - só as tarefas de exemplo (boas-vindas, de aparelhos antigos): são sempre descartadas; a conta começa zerada, ou com o que já tem;
  *  - tarefas do próprio usuário e a conta já tem dados: pergunta (mesclar ou descartar);
- *  - conta nova: as tarefas do aparelho sobem para ela.
+ *  - conta nova: as tarefas do próprio usuário que estão no aparelho sobem para ela.
  * @returns {{ok: boolean, cancelled?: boolean, sync?: object}}
  */
 export async function connect({ cloud, sync, store, mode, email, password, convite = '', exigirConvite = true, askAdopt }) {
@@ -50,10 +50,9 @@ export async function connect({ cloud, sync, store, mode, email, password, convi
     if (st.owner && st.owner !== session.uid) {
       store.resetForAccount(session.uid);
     } else if (!st.owner && (st.tasks.length > 0 || st.labels.length > 0)) {
-      const remote = await cloud.dbGet(`users/${session.uid}`);
-      if (remote && st.seed) {
-        store.resetForAccount(session.uid);
-      } else if (remote) {
+      if (st.seed) {
+        store.resetForAccount(session.uid); // só os exemplos: nunca sobem para a conta (a conta nova começa zerada)
+      } else if (await cloud.dbGet(`users/${session.uid}`)) {
         const choice = askAdopt ? await askAdopt({ tasks: st.tasks.length }) : 'merge';
         if (choice !== 'merge' && choice !== 'discard') {
           cloud.signOut();

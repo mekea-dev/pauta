@@ -9,7 +9,6 @@ import { due, notificationEntry, upcoming } from './reminders.js';
 /** Nome do cache do espelho. NÃO pode começar com "pauta-": o sw.js apaga os caches antigos com esse prefixo. */
 const MIRROR_CACHE = 'avisos-v1';
 const SHOWN_KEEP_MS = 3 * 86400000;
-const TEST_KEEP_MS = 10 * 60000;
 const MAX_LIST = 100; // o serviço de lembretes aceita até 100 avisos por aparelho
 
 /** Guarda a lista de avisos e os já mostrados num lugar que a página E o service worker enxergam (Cache API). */
@@ -41,7 +40,7 @@ export function createMirror({ cacheStorage = globalThis.caches, base = globalTh
  * @param {object} deps.store      as tarefas (state.tasks e subscribe)
  * @param {object} deps.mirror     createMirror()
  * @param {object} deps.push       createPush()
- * @param {object} deps.notify     { fire(aviso) -> Promise<boolean>, system(aviso), inApp(aviso) }: o que aparece na tela (js/ui/notify.js)
+ * @param {object} deps.notify     { fire(aviso) -> Promise<boolean> }: o que aparece na tela (js/ui/notify.js)
  * @param {object} deps.prefs      { get(): 'on' | 'off' | null, set(valor) }: a escolha da pessoa, só neste aparelho
  * @param {() => Date} [deps.now]
  * @param {number} [deps.intervalMs]
@@ -54,11 +53,9 @@ export function createAlerts({ store, mirror, push, notify, prefs, now = () => n
   let timer = 0;
   let syncTimer = 0;
   let ticking = false;
-  let test = null; // aviso de teste: fica no espelho para sobreviver a recarregar a página
 
   const emit = () => { for (const fn of listeners) fn(state); };
   const muted = () => prefs.get() === 'off';
-  const testNow = (t) => (test && test.at > t - TEST_KEEP_MS ? [test] : []);
 
   const prune = (shown, t) => Object.fromEntries(Object.entries(shown).filter(([, at]) => at > t - SHOWN_KEEP_MS));
   const loadShown = async () => (await mirror.read('mostrados', {})) ?? {};
@@ -66,8 +63,7 @@ export function createAlerts({ store, mirror, push, notify, prefs, now = () => n
   /** Avisos que ainda vão tocar mais os que acabaram de vencer (o service worker precisa deles na hora do "toque"). */
   function entries(t) {
     const tasks = store.state.tasks;
-    const mine = [...upcoming(tasks, t, { limit: MAX_LIST }), ...due(tasks, t)].map(notificationEntry);
-    return [...mine, ...testNow(t.getTime())].sort((a, b) => a.at - b.at);
+    return [...upcoming(tasks, t, { limit: MAX_LIST }), ...due(tasks, t)].map(notificationEntry).sort((a, b) => a.at - b.at);
   }
 
   async function refresh() {
@@ -108,7 +104,7 @@ export function createAlerts({ store, mirror, push, notify, prefs, now = () => n
       const t = now();
       const ms = t.getTime();
       const shown = await loadShown();
-      const fresh = [...due(store.state.tasks, t).map(notificationEntry), ...testNow(ms).filter((r) => r.at <= ms)].filter((r) => !shown[r.id]);
+      const fresh = due(store.state.tasks, t).map(notificationEntry).filter((r) => !shown[r.id]);
       let delivered = 0;
       for (const r of fresh) {
         // só anota como mostrado o que apareceu de verdade (aba escondida e sem permissão: tenta de novo no próximo ciclo)
@@ -133,7 +129,6 @@ export function createAlerts({ store, mirror, push, notify, prefs, now = () => n
   };
 
   async function start() {
-    test = await mirror.read('teste', null);
     push.prefetch();
     await refresh();
     // a permissão já foi dada mas a inscrição sumiu (o navegador as vezes limpa): refaz, sem perguntar nada
@@ -174,22 +169,6 @@ export function createAlerts({ store, mirror, push, notify, prefs, now = () => n
     await refresh();
   }
 
-  /** `later: false` mostra um aviso agora; `later: true` agenda um para daqui a 1 minuto (dá para fechar o app e esperar). */
-  async function runTest({ later = false } = {}) {
-    const t = now().getTime();
-    if (!later) {
-      const entry = { id: `teste|${t}`, taskId: null, title: 'Aviso de teste', body: 'Se você está vendo isto, os avisos funcionam neste aparelho.' };
-      const shown = state.permission === 'granted' && (await notify.system(entry));
-      if (!shown) notify.inApp(entry); // sem permissão (ou sem service worker): ao menos mostra na tela
-      return { later: false, system: shown };
-    }
-    const at = t + 60000;
-    test = { id: `teste|${at}`, taskId: null, title: 'Teste do Pauta', at, dueAt: at, date: null, time: null, remind: 0, body: 'Aviso de teste com o app fechado. Funcionou!', day: 'Teste' };
-    await mirror.write('teste', test);
-    await sync(true);
-    return { later: true, at, push: state.push === 'on' };
-  }
-
   return {
     start,
     stop() {
@@ -201,7 +180,6 @@ export function createAlerts({ store, mirror, push, notify, prefs, now = () => n
     refresh,
     enable,
     disable,
-    test: runTest,
     status: () => ({ ...state, muted: muted() }),
     onChange(fn) {
       listeners.add(fn);

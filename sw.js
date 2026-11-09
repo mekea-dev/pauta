@@ -2,7 +2,7 @@
 // Estratégia: rede primeiro (quando há internet você sempre recebe a versão mais nova, que é
 // revalidada a cada abertura) e, sem rede, a cópia guardada. Os dados das tarefas NÃO passam por aqui:
 // ficam no localStorage da página.
-const VERSION = '1.7.0'; // manter igual a APP_VERSION em js/config.js (há um teste que confere)
+const VERSION = '1.8.0'; // manter igual a APP_VERSION em js/config.js (há um teste que confere)
 const CACHE = `pauta-${VERSION}`;
 
 // Todo arquivo novo do app precisa entrar nesta lista (o teste tests/sw.test.js avisa se faltar).
@@ -21,6 +21,7 @@ const ASSETS = [
   './js/voice.js',
   './js/speech.js',
   './js/ai.js',
+  './js/match.js',
   './js/reminders.js',
   './js/alerts.js',
   './js/push.js',
@@ -40,7 +41,9 @@ const ASSETS = [
   './js/ui/overlay.js',
   './js/ui/account.js',
   './js/ui/actions.js',
+  './js/ui/commands.js',
   './js/ui/taskrow.js',
+  './js/ui/swipe.js',
   './js/ui/composer.js',
   './js/ui/timepick.js',
   './js/ui/notify.js',
@@ -50,6 +53,7 @@ const ASSETS = [
   './js/ui/topbar.js',
   './js/ui/editor.js',
   './js/ui/settings.js',
+  './js/ui/install.js',
   './js/ui/shortcuts.js',
   './icons/icon.svg',
   './icons/icon-192.png',

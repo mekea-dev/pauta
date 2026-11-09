@@ -763,6 +763,24 @@ body.gated .app, body.gated .fab { display: none; }
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
 }
 
+/* ---------- arrastar a tarefa no celular (js/ui/swipe.js): direita conclui, esquerda exclui ---------- */
+.task.is-swipeable { touch-action: pan-y pinch-zoom; } /* a rolagem vertical continua com o navegador; o arrasto na horizontal é nosso */
+.task.is-swiping { overflow: hidden; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.task.is-swiping > :not(.swipe-bg) { transform: translateX(var(--swipe-x, 0px)); will-change: transform; }
+.task.is-swiping.is-settling > :not(.swipe-bg) { transition: transform .18s ease-out; }
+.swipe-bg {
+  position: absolute; top: 0; bottom: 0; display: flex; align-items: center; width: var(--swipe-abs, 0px); overflow: hidden;
+  background: var(--success); color: var(--on-success); pointer-events: none;
+  opacity: calc(.6 + .4 * var(--swipe-progress, 0)); /* mais fraco até chegar ao limite: mostra que ainda não vale soltar */
+}
+.swipe-bg.is-right { left: 0; justify-content: flex-start; }
+.swipe-bg.is-left { right: 0; justify-content: flex-end; background: var(--danger); color: var(--on-danger); }
+.swipe-cue { display: inline-flex; align-items: center; flex: none; gap: 6px; margin: 0 12px; font-size: 12.5px; font-weight: 700; line-height: 1.15; transition: transform .12s; }
+.swipe-label { max-width: 5.4em; } /* "Solte para concluir" quebra em duas linhas ("Solte para" / "concluir") e cabe na largura do limite num celular */
+.swipe-bg.is-armed { opacity: 1; filter: brightness(1.08); }
+.swipe-bg.is-armed .swipe-cue { transform: scale(1.1); }
+.task.is-swiping.is-settling .swipe-bg { transition: width .18s ease-out; }
+
 /* ---------- impressão: só a lista, sem menus ---------- */
 @media print {
   .sidebar, .scrim, .topbar-actions, .weekstrip-wrap, .composer, .fab, .toasts, .more, .menu-btn, .view-actions, .notice { display: none !important; }
@@ -772,3 +790,14 @@ body.gated .app, body.gated .fab { display: none; }
   .card, .cal { box-shadow: none; }
   .task { break-inside: avoid; }
 }
+
+/* ---------- convite para instalar o Pauta (js/ui/install.js): topo da tela de entrada e da janela de conta ---------- */
+.install-slot { margin: 0 0 20px; }
+.install-note {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2);
+}
+.install-note > .icon { color: var(--accent); }
+.install-note-text { display: grid; flex: 1; min-width: 0; gap: 2px; color: var(--text-2); font-size: 13px; line-height: 1.35; }
+.install-note-text strong { color: var(--text); font-size: 14px; font-weight: 680; }
+.install-note > .btn { flex: none; }

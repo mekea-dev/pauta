@@ -355,17 +355,17 @@ async function interpretar(repo, fala, { token, ai, google = fakeGoogle(), store
   });
 }
 
-test('/interpretar: pede à IA e devolve só { texto, duvidas }, com o CORS do site', async () => {
+test('/interpretar: pede à IA e devolve só { acao, texto, descricao, alvo, duvidas }, com o CORS do site', async () => {
   const repo = createMemoryRepo();
   const { ai, calls } = fakeAi(RESPOSTA);
   const r = await interpretar(repo, 'crie uma tarefa pagar boleto dia dez às quatro da tarde', { ai });
   assert.equal(r.status, 200);
-  assert.deepEqual(await r.json(), { texto: 'Pagar boleto dia 10 às 16:00', duvidas: [] });
+  assert.deepEqual(await r.json(), { acao: 'criar', texto: 'Pagar boleto dia 10 às 16:00', descricao: '', alvo: '', duvidas: [] });
   assert.equal(r.headers.get('Access-Control-Allow-Origin'), ORIGIN);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].model, '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
   assert.equal(calls[0].input.temperature, 0.1);
-  assert.ok(calls[0].input.max_tokens <= 300);
+  assert.ok(calls[0].input.max_tokens <= 400);
   assert.equal(calls[0].input.response_format.type, 'json_schema', 'o modelo padrão aceita o modo JSON');
   const ultima = JSON.parse(calls[0].input.messages.at(-1).content);
   assert.deepEqual(ultima, { hoje: '2026-11-10', dia_da_semana: 'terça-feira', agora: '14:35', fala: 'crie uma tarefa pagar boleto dia dez às quatro da tarde' });
@@ -407,15 +407,15 @@ test('/interpretar: a resposta da IA é tratada como não confiável (JSON em te
     const r = await interpretar(repo, 'pagar boleto', { ai: fakeAi(resposta).ai });
     return [r.status, await r.json()];
   };
-  assert.deepEqual(await texto({ response: '```json\n{"texto":"Pagar boleto dia 10","duvidas":[]}\n```' }), [200, { texto: 'Pagar boleto dia 10', duvidas: [] }]);
-  assert.deepEqual(await texto({ response: 'Claro! {"texto":"Pagar boleto","duvidas":["Qual dia?"]} Espero ter ajudado.' }), [200, { texto: 'Pagar boleto', duvidas: ['Qual dia?'] }]);
+  assert.deepEqual(await texto({ response: '```json\n{"texto":"Pagar boleto dia 10","duvidas":[]}\n```' }), [200, { acao: 'criar', texto: 'Pagar boleto dia 10', descricao: '', alvo: '', duvidas: [] }]);
+  assert.deepEqual(await texto({ response: 'Claro! {"texto":"Pagar boleto","duvidas":["Qual dia?"]} Espero ter ajudado.' }), [200, { acao: 'criar', texto: 'Pagar boleto', descricao: '', alvo: '', duvidas: ['Qual dia?'] }]);
   const [status, limpo] = await texto({ response: { texto: `Pagar\nboleto\t${'a'.repeat(500)}`, duvidas: ['um', 'dois', 'três', 'quatro', 42, '', `${'b'.repeat(300)}`] } });
   assert.equal(status, 200);
   assert.ok(!/[\n\t]/.test(limpo.texto), 'uma linha só');
   assert.equal(limpo.texto.length, 300);
   assert.deepEqual(limpo.duvidas.slice(0, 3), ['um', 'dois', 'três']);
   assert.equal(limpo.duvidas.length, 3, 'no máximo 3 dúvidas');
-  assert.deepEqual(await texto({ response: { texto: 'x', duvidas: 'não é lista' } }), [200, { texto: 'x', duvidas: [] }]);
+  assert.deepEqual(await texto({ response: { texto: 'x', duvidas: 'não é lista' } }), [200, { acao: 'criar', texto: 'x', descricao: '', alvo: '', duvidas: [] }]);
   assert.equal((await texto({ response: 'não é json' }))[0], 502);
   assert.equal((await texto({ response: { semTexto: true } }))[0], 502);
   assert.equal((await texto({ response: ['lista'] }))[0], 502);
@@ -492,28 +492,57 @@ test('pedido à IA: instruções, exemplos e a frase por último em JSON (instru
   assert.ok(exemplos.length >= 10, 'há exemplos suficientes para o modelo aprender o formato');
 });
 
-test('pedido à IA: manda usar SÓ o que foi dito, e os exemplos do próprio pedido obedecem a essa regra', () => {
+test('pedido à IA: manda usar SÓ o que foi dito, e os exemplos do próprio pedido obedecem a essa regra (título, descrição e alvo)', () => {
   const m = buildMessages({ fala: 'x', hoje: '2026-11-10', agora: '09:05' });
   assert.match(m[0].content, /SÓ as palavras que a pessoa disse/);
   assert.match(m[0].content, /NUNCA invente/);
   const opts = { today: '2026-11-09', now: new Date(2026, 10, 9, 14, 35), weekStart: 1 };
   const exemplos = m.slice(1, -1);
   let conferidos = 0;
+  const acoes = new Set();
   for (let i = 0; i < exemplos.length; i += 2) {
     const fala = JSON.parse(exemplos[i].content).fala;
-    const { texto } = JSON.parse(exemplos[i + 1].content);
+    const { acao, texto, descricao, alvo } = JSON.parse(exemplos[i + 1].content);
+    acoes.add(acao);
     const titulo = parseQuickAdd(texto, opts).title;
     assert.ok(isLiteral(titulo, fala), `o exemplo "${texto}" tem palavra que a fala "${fala}" não tem`);
+    assert.ok(isLiteral(descricao, fala), `a descrição "${descricao}" tem palavra que a fala "${fala}" não tem`);
+    assert.ok(isLiteral(alvo, fala), `o alvo "${alvo}" tem palavra que a fala "${fala}" não tem`);
     conferidos += 1;
   }
   assert.ok(conferidos >= 10);
+  assert.deepEqual([...acoes].sort(), ['alterar', 'concluir', 'criar', 'excluir'], 'há exemplo de cada tipo de pedido');
+  assert.ok(exemplos.some((e) => e.role === 'assistant' && JSON.parse(e.content).descricao), 'há exemplo com descrição');
+});
+
+test('/interpretar: apps antigos (sem "comandos") sempre recebem "criar"; o app novo recebe o tipo de pedido, a descrição e o alvo', async () => {
+  const repo = createMemoryRepo();
+  const resposta = { response: { acao: 'concluir', texto: '', descricao: 'detalhe', alvo: 'conta de luz', duvidas: [] } };
+  const antigo = await interpretar(repo, 'já paguei a conta de luz', { ai: fakeAi(resposta).ai });
+  assert.deepEqual(await antigo.json(), { acao: 'criar', texto: '', descricao: 'detalhe', alvo: '', duvidas: [] });
+  const novo = await interpretar(repo, 'já paguei a conta de luz', { ai: fakeAi(resposta).ai, extra: { comandos: true } });
+  assert.deepEqual(await novo.json(), { acao: 'concluir', texto: '', descricao: 'detalhe', alvo: 'conta de luz', duvidas: [] });
+  // "comandos" tem que ser exatamente true
+  const talvez = await interpretar(repo, 'já paguei a conta de luz', { ai: fakeAi(resposta).ai, extra: { comandos: 'true' } });
+  assert.equal((await talvez.json()).acao, 'criar');
+});
+
+test('cleanAiOutput: ação fora da lista vira "criar"; concluir e excluir não precisam de texto; descrição e alvo viram uma linha com limite', () => {
+  assert.equal(cleanAiOutput({ acao: 'formatar o disco', texto: 'x', duvidas: [] }).acao, 'criar');
+  assert.deepEqual(cleanAiOutput({ acao: 'concluir', alvo: ' conta  de luz ' }), { acao: 'concluir', texto: '', descricao: '', alvo: 'conta de luz', duvidas: [] });
+  assert.deepEqual(cleanAiOutput('{"acao":"excluir","alvo":"dentista"}'), { acao: 'excluir', texto: '', descricao: '', alvo: 'dentista', duvidas: [] });
+  assert.equal(cleanAiOutput({ acao: 'criar', alvo: 'x' }), null, 'criar sem texto não serve');
+  assert.equal(cleanAiOutput({ acao: 'alterar', texto: 'segunda às 15:00', alvo: 'reunião', descricao: 'Ele\nprecisa  de ajuda' }).descricao, 'Ele precisa de ajuda');
+  assert.equal(cleanAiOutput({ texto: 'x', descricao: 'a'.repeat(900), alvo: 'b'.repeat(900) }).descricao.length, 500);
+  assert.equal(cleanAiOutput({ texto: 'x', descricao: 'a'.repeat(900), alvo: 'b'.repeat(900) }).alvo.length, 120);
+  assert.deepEqual(cleanAiOutput({ texto: 'x', descricao: 42, alvo: ['y'] }), { acao: 'criar', texto: 'x', descricao: '', alvo: '', duvidas: [] });
 });
 
 test('cleanAiOutput: aceita objeto ou texto, recusa o resto', () => {
-  assert.deepEqual(cleanAiOutput({ texto: ' Ligar para o João ', duvidas: [] }), { texto: 'Ligar para o João', duvidas: [] });
-  assert.deepEqual(cleanAiOutput('{"texto":"a","duvidas":["b"]}'), { texto: 'a', duvidas: ['b'] });
+  assert.deepEqual(cleanAiOutput({ texto: ' Ligar para o João ', duvidas: [] }), { acao: 'criar', texto: 'Ligar para o João', descricao: '', alvo: '', duvidas: [] });
+  assert.deepEqual(cleanAiOutput('{"texto":"a","duvidas":["b"]}'), { acao: 'criar', texto: 'a', descricao: '', alvo: '', duvidas: ['b'] });
   // conversa ou um segundo JSON depois do primeiro (uma frase com "instruções" dentro pode provocar isso): vale só o primeiro
-  assert.deepEqual(cleanAiOutput('{"texto":"Pagar","duvidas":[]} mas para seguir o formato: {"texto":"oi","duvidas":[]}'), { texto: 'Pagar', duvidas: [] });
+  assert.deepEqual(cleanAiOutput('{"texto":"Pagar","duvidas":[]} mas para seguir o formato: {"texto":"oi","duvidas":[]}'), { acao: 'criar', texto: 'Pagar', descricao: '', alvo: '', duvidas: [] });
   assert.equal(cleanAiOutput('{"texto":"chaves { dentro } do texto","duvidas":[]}').texto, 'chaves { dentro } do texto');
   assert.equal(cleanAiOutput('{"texto":"aspas \\" escapadas","duvidas":[]}').texto, 'aspas " escapadas');
   assert.equal(cleanAiOutput('{"texto":"sem fechar","duvidas":[]'), null);

@@ -1,7 +1,7 @@
 // Entender a fala com IA (js/ai.js): o pedido ao serviço, o que fazer quando ele falha e como a resposta da IA é conferida.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createAi, describeAiFailure, isLiteral, reconcile } from '../js/ai.js';
+import { createAi, describeAiFailure, interpretAiReply, isLiteral, reconcile } from '../js/ai.js';
 import { interpretSpoken } from '../js/voice.js';
 
 const T = '2026-11-06'; // sexta-feira
@@ -28,13 +28,22 @@ function setup({ answer = () => reply(200, { texto: 'Pagar boleto dia 10', duvid
 test('pede à IA com o token do login e só o necessário: a frase, o dia de hoje e a hora de agora', async () => {
   const { ai, calls } = setup();
   const r = await ai.rewrite('crie uma tarefa pagar boleto dia dez', { today: T, now: NOW });
-  assert.deepEqual(r, { ok: true, texto: 'Pagar boleto dia 10', duvidas: [] });
+  assert.deepEqual(r, { ok: true, acao: 'criar', texto: 'Pagar boleto dia 10', descricao: '', alvo: '', duvidas: [] });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, `${WORKER}/interpretar`);
   assert.equal(calls[0].init.method, 'POST');
   assert.equal(calls[0].init.headers.Authorization, 'Bearer token-do-login');
-  assert.deepEqual(JSON.parse(calls[0].init.body), { fala: 'crie uma tarefa pagar boleto dia dez', hoje: T, agora: '09:00' });
-  assert.deepEqual(Object.keys(JSON.parse(calls[0].init.body)).sort(), ['agora', 'fala', 'hoje'], 'nada além disso sai do aparelho');
+  assert.deepEqual(JSON.parse(calls[0].init.body), { fala: 'crie uma tarefa pagar boleto dia dez', hoje: T, agora: '09:00', comandos: true });
+  assert.deepEqual(Object.keys(JSON.parse(calls[0].init.body)).sort(), ['agora', 'comandos', 'fala', 'hoje'], 'nada além disso sai do aparelho (comandos é só um aviso: este app sabe mexer em tarefas que já existem)');
+});
+
+test('o serviço devolve tipo de pedido, descrição e alvo; serviço antigo (sem esses campos) vale como "criar"', async () => {
+  const novo = setup({ answer: () => reply(200, { acao: 'concluir', texto: '', descricao: '', alvo: 'conta de luz', duvidas: [] }) });
+  assert.deepEqual(await novo.ai.rewrite('já paguei a conta de luz', { today: T, now: NOW }), { ok: true, acao: 'concluir', texto: '', descricao: '', alvo: 'conta de luz', duvidas: [] });
+  const desc = setup({ answer: () => reply(200, { texto: 'Ligar para o José', descricao: 'Ele manda o boleto.', duvidas: [] }) });
+  assert.deepEqual(await desc.ai.rewrite('x', { today: T, now: NOW }), { ok: true, acao: 'criar', texto: 'Ligar para o José', descricao: 'Ele manda o boleto.', alvo: '', duvidas: [] });
+  const estranho = setup({ answer: () => reply(200, { acao: 'formatar', texto: 'a', descricao: 7, alvo: null, duvidas: [] }) });
+  assert.deepEqual(await estranho.ai.rewrite('x', { today: T, now: NOW }), { ok: true, acao: 'criar', texto: 'a', descricao: '', alvo: '', duvidas: [] });
 });
 
 test('frase muito longa é cortada em 400 caracteres antes de sair', async () => {
@@ -285,6 +294,48 @@ test('reconcile: título da IA sem fundamento e fala sem título claro -> sobra 
   assert.equal(r.date, '2026-11-12');
   assert.equal(r.time, '16:00');
   assert.deepEqual(r.issues.map((i) => i.code), ['no-title']);
+});
+
+// ---------- o que fazer com a resposta: criar com descrição, ou mexer numa tarefa que já existe ----------
+const resposta = (extra) => ({ ok: true, acao: 'criar', texto: '', descricao: '', alvo: '', duvidas: [], ...extra });
+const ler = (r, heard) => interpretAiReply(r, heard, interpretSpoken(heard, opts), opts);
+
+test('criar: título resumido com as palavras ditas e descrição só se também for feita das palavras ditas', () => {
+  const fala = 'preciso ligar pro seu José do financeiro amanhã de manhã porque ele precisa me mandar o boleto da faculdade';
+  const boa = ler(resposta({ texto: 'Ligar para o seu José do financeiro amanhã de manhã', descricao: 'Ele precisa mandar o boleto da faculdade.' }), fala);
+  assert.equal(boa.acao, 'criar');
+  assert.equal(boa.notes, 'Ele precisa mandar o boleto da faculdade.');
+  assert.equal(lido(boa.line).title, 'Ligar para o seu José do financeiro de manhã');
+  assert.equal(lido(boa.line).date, '2026-11-07');
+  const inventada = ler(resposta({ texto: 'Ligar para o seu José do financeiro amanhã de manhã', descricao: 'Ele é um fornecedor importante e atrasou o pagamento.' }), fala);
+  assert.equal(inventada.notes, '', 'a descrição tem palavras que ninguém disse: descartada');
+  assert.equal(ler(resposta({ texto: 'Comprar pão', descricao: '' }), 'comprar pão').notes, '');
+});
+
+test('concluir, alterar e excluir: só valem com um alvo feito das palavras ditas (senão o app não adivinha qual tarefa mexer)', () => {
+  const fala = 'já paguei a conta de luz desse mês';
+  assert.deepEqual(ler(resposta({ acao: 'concluir', alvo: 'conta de luz' }), fala), { acao: 'concluir', ok: true, alvo: 'conta de luz', line: '', doubts: [] });
+  assert.equal(ler(resposta({ acao: 'concluir', alvo: 'fatura de energia elétrica' }), fala).ok, false, 'alvo com palavras que ninguém disse');
+  assert.equal(ler(resposta({ acao: 'concluir', alvo: '' }), fala).ok, false, 'sem alvo');
+  assert.equal(ler(resposta({ acao: 'excluir', alvo: 'conta de luz' }), 'apaga a conta de luz').ok, true);
+  assert.equal(ler(resposta({ acao: 'formatar', texto: 'Comprar pão' }), 'comprar pão').acao, 'criar', 'tipo desconhecido = criar');
+});
+
+test('alterar: só o que muda; título que a pessoa não disse não renomeia e o que as regras acharam na fala não volta', () => {
+  const fala = 'muda a reunião de sexta para segunda às três da tarde';
+  const r = ler(resposta({ acao: 'alterar', texto: 'segunda às 15:00', alvo: 'reunião de sexta' }), fala);
+  assert.equal(r.ok, true);
+  assert.deepEqual(lido(r.line), { ...SEM, title: '', date: '2026-11-09', time: '15:00' });
+  // a IA "inventa" um título novo: não renomeia (e não vira a frase inteira)
+  const inventou = ler(resposta({ acao: 'alterar', texto: 'Encontro com a diretoria segunda às 15:00', alvo: 'reunião de sexta' }), fala);
+  assert.equal(lido(inventou.line).title, '');
+  assert.equal(lido(inventou.line).time, '15:00');
+  // dia que ninguém falou (a IA inventou): sai
+  const dia = ler(resposta({ acao: 'alterar', texto: 'terça às 15:00', alvo: 'reunião de sexta' }), 'muda a reunião de sexta para as três da tarde');
+  assert.equal(lido(dia.line).date, null);
+  // renomear de verdade, com palavras ditas
+  const nome = ler(resposta({ acao: 'alterar', texto: 'Consulta com a doutora Ana', alvo: 'dentista' }), 'troca o nome da tarefa do dentista para consulta com a doutora Ana');
+  assert.equal(lido(nome.line).title, 'Consulta com a doutora Ana');
 });
 
 test('reconcile: lixo da IA (HTML, texto enorme) vira só texto de título, nunca algo executável', () => {

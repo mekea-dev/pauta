@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { connect, disconnect, isEmail, loginRequired, needsLogin, removeAccount, validateCredentials } from '../js/cloud/account.js';
 import { createCloud, mapAuthError } from '../js/cloud/firebase.js';
 import { createSync } from '../js/cloud/sync.js';
-import { defaultSettings, seedState } from '../js/model.js';
+import { defaultSettings, emptyState, seedState } from '../js/model.js';
 import { memoryStorage } from '../js/persist.js';
 import { createStore } from '../js/store.js';
 import { FAKE_CONFIG as CONFIG, createFakeFirebase } from './helpers/fake-firebase.js';
@@ -386,14 +386,38 @@ test('sem sessão: a sincronização fica desligada', async () => {
 
 // ---------- fluxos de conta ----------
 
-test('conta nova: as tarefas deste aparelho (inclusive as de boas-vindas) sobem para a conta', async () => {
+test('conta nova: as tarefas do próprio usuário que estão no aparelho sobem para a conta', async () => {
   const fb = createFakeFirebase({ now });
-  const d = newDevice(fb, seedState('2026-11-06', new Date(clock.t).toISOString()));
+  const d = newDevice(fb);
+  d.store.addTask({ title: 'Minha tarefa' });
+  d.store.addTask({ title: 'Outra' });
   const r = await connect({ ...d, mode: 'signUp', email: EMAIL, password: PASS, convite: 'FAMILIA' });
   assert.equal(r.ok, true);
   assert.equal(d.store.state.owner, d.cloud.session.uid);
-  assert.equal(fb.remote(d.cloud.session.uid).tasks.length, d.store.state.tasks.length);
-  assert.ok(d.store.state.tasks.length >= 3);
+  assert.deepEqual(titles(d.store), ['Minha tarefa', 'Outra']);
+  assert.equal(fb.remote(d.cloud.session.uid).tasks.length, 2);
+});
+
+test('conta nova começa ZERADA: o aparelho só com as tarefas e etiquetas de exemplo (aparelhos antigos) não as sobe', async () => {
+  const fb = createFakeFirebase({ now });
+  const d = newDevice(fb, seedState('2026-11-06', new Date(clock.t).toISOString()));
+  assert.ok(d.store.state.tasks.length >= 3 && d.store.state.labels.length > 0, 'o aparelho antigo tem os exemplos');
+  const r = await connect({ ...d, mode: 'signUp', email: EMAIL, password: PASS, convite: 'FAMILIA' });
+  assert.equal(r.ok, true);
+  assert.equal(d.store.state.owner, d.cloud.session.uid);
+  assert.deepEqual(d.store.state.tasks, []);
+  assert.deepEqual(d.store.state.labels, []);
+  assert.equal(fb.remote(d.cloud.session.uid).tasks.length, 0, 'nada de exemplo foi para a conta');
+  assert.equal(fb.remote(d.cloud.session.uid).labels.length, 0);
+});
+
+test('primeiro acesso: o estado inicial é vazio (sem tarefas nem etiquetas de exemplo) e a conta nova sai igual', async () => {
+  assert.deepEqual([emptyState().tasks, emptyState().labels, emptyState().seed], [[], [], false]);
+  const fb = createFakeFirebase({ now });
+  const d = newDevice(fb, emptyState());
+  await connect({ ...d, mode: 'signUp', email: EMAIL, password: PASS, convite: 'FAMILIA' });
+  assert.deepEqual(titles(d.store), []);
+  assert.equal(fb.remote(d.cloud.session.uid).tasks.length, 0);
 });
 
 test('conta que já tem dados + aparelho só com as boas-vindas: vale a conta (sem misturar os exemplos)', async () => {

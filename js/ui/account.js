@@ -7,6 +7,7 @@ import { formatStamp } from '../dates.js';
 import { plural } from '../text.js';
 import { h, isTouch, qs } from './dom.js';
 import { icon, logo } from './icons.js';
+import { installNote } from './install.js';
 import { choiceDialog, confirmDialog, passwordDialog, toast } from './overlay.js';
 
 const STATUS_TEXT = { idle: 'Sincronizado', syncing: 'Sincronizando…', offline: 'Sem conexão', error: 'Erro ao sincronizar' };
@@ -15,7 +16,7 @@ const STATUS_ICON = { idle: 'cloud-check', syncing: 'sync', offline: 'cloud-off'
 export function createAccountUI(app) {
   const { cloud, sync, store } = app;
   // sem Firebase configurado: nada de conta aparece no app
-  if (!cloud) return { enabled: false, required: false, gated: false, start() {}, sidebarItem: () => null, section: () => null, open() {} };
+  if (!cloud) return { enabled: false, required: false, gated: false, start() {}, sidebarItem: () => null, section: () => null, open() {}, refreshInstall() {} };
   const config = app.cloudConfig;
   const required = loginRequired(config);
 
@@ -51,6 +52,29 @@ export function createAccountUI(app) {
   const welcome = (signUp, r) => toast(signUp ? 'Conta criada. Suas tarefas estão sendo sincronizadas.'
     : r.ok ? 'Conectado. Suas tarefas estão sincronizadas.'
     : 'Conectado, mas não consegui sincronizar agora. Vou tentar de novo.');
+
+  /**
+   * O convite para instalar o Pauta, no topo (acima do formulário). Fica num elemento próprio (.install-slot) para poder ser refeito
+   * quando o navegador oferecer a instalação ou ela terminar, SEM desenhar o formulário de novo (o que a pessoa já digitou fica).
+   */
+  function fillInstall(slot) {
+    const hadFocus = slot.contains(document.activeElement);
+    const note = installNote(app, { onChange: refreshInstall });
+    slot.replaceChildren(...(note ? [note] : []));
+    slot.hidden = !note;
+    if (hadFocus && !note && !isTouch()) slot.parentElement?.querySelector('input')?.focus(); // o botão saiu da tela: o foco vai para o primeiro campo
+  }
+
+  function installSlot() {
+    const slot = h('div', { class: 'install-slot' });
+    fillInstall(slot);
+    return slot;
+  }
+
+  /** Chamado por js/main.js quando o navegador oferece instalar (beforeinstallprompt) ou a instalação termina (appinstalled). */
+  function refreshInstall() {
+    for (const slot of document.querySelectorAll('.install-slot')) fillInstall(slot);
+  }
 
   /** Aviso de privacidade que acompanha o cadastro. */
   const privacyNote = () => h('p', { class: 'auth-note' }, icon('shield', 15),
@@ -188,6 +212,7 @@ export function createAccountUI(app) {
         h('h2', { id: 'au-title', class: 'dialog-title' }, signUp ? 'Criar conta' : 'Entrar'),
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Fechar', onclick: () => { if (!busy) dlg.close(); } }, icon('x', 20))),
       h('p', { class: 'dialog-text' }, signUp ? 'Veja as mesmas tarefas no celular, no notebook e no PC.' : 'Entre para ver suas tarefas em qualquer aparelho.'),
+      installSlot(),
       form,
       signUp ? privacyNote() : null));
     return email;
@@ -223,6 +248,7 @@ export function createAccountUI(app) {
       },
     });
     gateEl.replaceChildren(h('div', { class: 'gate-card' },
+      installSlot(),
       h('div', { class: 'gate-brand' }, logo(34), h('span', {}, 'Pauta')),
       h('h1', { id: 'gate-title', class: 'gate-title' }, signUp ? 'Criar conta' : 'Entrar'),
       h('p', { class: 'gate-text' }, signUp
@@ -369,5 +395,5 @@ export function createAccountUI(app) {
         h('button', { class: 'btn btn-danger-ghost', type: 'button', onclick: erase }, icon('trash', 16), 'Excluir minha conta')));
   }
 
-  return { enabled: true, required, get gated() { return gateOn; }, start, sidebarItem, section, open };
+  return { enabled: true, required, get gated() { return gateOn; }, start, sidebarItem, section, open, refreshInstall };
 }

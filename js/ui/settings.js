@@ -9,8 +9,11 @@ import { formatSpeechReport } from '../speech.js';
 import { plural } from '../text.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
+import { installActions } from './install.js';
 import { choiceDialog, confirmDialog, toast } from './overlay.js';
 import { SHORTCUTS } from './shortcuts.js';
+
+const AI_TEST_SENTENCE = 'lembra de ligar pro dentista amanhã às três da tarde';
 
 function download(name, text, type) {
   const url = URL.createObjectURL(new Blob([text], { type }));
@@ -34,6 +37,7 @@ export function createSettings(app) {
   let alertsStatus = null; // { text, bad } resultado da última ação na seção de avisos
   let aiBusy = false;
   let aiStatus = null; // { text, bad } resultado do último teste da IA
+  let aiSentence = ''; // a frase que a pessoa quer testar (vazia: a de exemplo)
   let micStatus = null; // { text } resultado de "Copiar relatório do microfone"
   let micText = null; // o relatório, para copiar à mão quando o aparelho não deixa copiar sozinho
   dlg.addEventListener('close', () => { paletteFor = null; status = null; alertsStatus = null; aiStatus = null; micStatus = null; micText = null; });
@@ -103,19 +107,7 @@ export function createSettings(app) {
     const buttons = [];
     if (a.permission === 'default' || a.muted) buttons.push(btn('Ligar avisos', () => alertsAction(async () => enableResult(await app.alerts.enable())), { primary: true }));
     if (on && a.push === 'off') buttons.push(btn('Ligar de novo', () => alertsAction(async () => enableResult(await app.alerts.enable())), { primary: true }));
-    if (on) {
-      buttons.push(btn('Testar agora', () => alertsAction(async () => {
-        const r = await app.alerts.test();
-        return { text: r.system ? 'Enviei um aviso de teste. Se ele apareceu, está tudo certo neste aparelho.' : 'Mostrei o aviso de teste na tela. O aviso do sistema não saiu: confira a permissão do aparelho.', bad: !r.system };
-      }), { iconName: 'check' }));
-      if (a.push === 'on') {
-        buttons.push(btn('Testar com o app fechado', () => alertsAction(async () => {
-          await app.alerts.test({ later: true });
-          return { text: 'Combinado: em cerca de 1 minuto chega um aviso de teste. Feche o app agora e espere até 2 minutos.' };
-        }), { iconName: 'clock' }));
-      }
-      buttons.push(btn('Desligar', () => alertsAction(async () => { await app.alerts.disable(); return { text: 'Avisos desligados neste aparelho.' }; }), { iconName: 'bell-off' }));
-    }
+    if (on) buttons.push(btn('Desligar', () => alertsAction(async () => { await app.alerts.disable(); return { text: 'Avisos desligados neste aparelho.' }; }), { iconName: 'bell-off' }));
     return h('section', { class: 'st-section', id: 'st-avisos' },
       h('h3', {}, 'Avisos dos lembretes'),
       h('p', { class: 'muted' }, text),
@@ -131,12 +123,19 @@ export function createSettings(app) {
     aiBusy = true;
     aiStatus = null;
     render();
-    const r = await app.ai.rewrite('lembra de ligar pro dentista amanhã às três da tarde', { today: store.today(), now: new Date() });
-    aiStatus = r.ok
-      ? { text: `Funcionou. A IA entendeu a frase de teste como: “${r.texto || '(nada)'}”.` }
-      : { text: `Não funcionou: ${describeAiFailure(r.reason)}`, bad: true };
+    const r = await app.ai.rewrite(aiSentence.trim() || AI_TEST_SENTENCE, { today: store.today(), now: new Date() });
+    aiStatus = r.ok ? { text: `Funcionou. ${describeAiTest(r)}` } : { text: `Não funcionou: ${describeAiFailure(r.reason)}`, bad: true };
     aiBusy = false;
     render();
+  }
+
+  /** O que a IA entendeu, em palavras (só para o teste: o app confere a resposta de novo quando é uma frase de verdade). */
+  function describeAiTest(r) {
+    const quote = (s) => `“${s || '(nada)'}”`;
+    if (r.acao === 'concluir') return `A IA entendeu que você concluiu a tarefa chamada ${quote(r.alvo)}.`;
+    if (r.acao === 'excluir') return `A IA entendeu que você quer excluir a tarefa chamada ${quote(r.alvo)}.`;
+    if (r.acao === 'alterar') return `A IA entendeu que você quer alterar a tarefa chamada ${quote(r.alvo)}: ${quote(r.texto)}.`;
+    return `A IA entendeu como nova tarefa: ${quote(r.texto)}${r.descricao ? `; descrição: ${quote(r.descricao)}` : ''}.`;
   }
 
   function aiSection() {
@@ -152,9 +151,14 @@ export function createSettings(app) {
     else if (s.on && !s.online) note = 'Sem internet agora: sem a IA, o app entende a fala com as regras do aparelho.';
     return h('section', { class: 'st-section', id: 'st-ia' },
       h('h3', {}, 'Entender a fala com IA'),
-      h('p', { class: 'muted' }, 'Ao falar uma tarefa, o Pauta entende a frase aqui no aparelho, por regras. Com a IA ligada (é o padrão), a frase falada (só o texto) também vai ao serviço do Pauta na Cloudflare, que usa uma IA para organizá-la como tarefa: título limpo, dia, hora, lembrete. A IA só pode usar o que você disse: o que ela inventar é descartado. O serviço não guarda a frase. Desligada, nada do que você fala sai do aparelho.'),
+      h('p', { class: 'muted' }, 'Ao falar uma tarefa, o Pauta entende a frase aqui no aparelho, por regras. Com a IA ligada (é o padrão), a frase falada (só o texto) também vai ao serviço do Pauta na Cloudflare, que usa uma IA para organizá-la: título resumido, anotações com os detalhes, dia, hora, lembrete; e para entender se você quer criar uma tarefa nova ou concluir, alterar ou excluir uma que já existe (“já paguei a conta de luz”). A IA só pode usar o que você disse: o que ela inventar é descartado. Quem acha a tarefa que você quis dizer é o seu aparelho: os títulos das suas tarefas não saem dele. O serviço não guarda a frase. Desligada, nada do que você fala sai do aparelho e a frase vira sempre uma tarefa nova.'),
       h('label', { class: 'st-row switch-row' }, h('span', {}, 'Usar a IA neste aparelho'), toggle),
       note ? h('p', { class: 'muted' }, note) : null,
+      s.on && usable ? h('input', {
+        class: 'input', type: 'text', maxlength: 300, value: aiSentence, placeholder: `Frase para testar (se vazio: “${AI_TEST_SENTENCE}”)`,
+        'aria-label': 'Frase para testar a IA', oninput: (e) => { aiSentence = e.target.value; },
+        onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); testAi(); } },
+      }) : null,
       s.on && usable ? h('div', { class: 'btn-row' }, h('button', { class: 'btn btn-sm', type: 'button', disabled: aiBusy, onclick: testAi }, icon('check', 15), aiBusy ? 'Testando…' : 'Testar a IA')) : null,
       aiStatus ? h('p', { class: `status${aiStatus.bad ? ' bad' : ''}`, role: 'status' }, aiStatus.text) : null,
       h('p', { class: 'muted' }, 'Se a IA falhar (sem internet, limite grátis do dia, serviço fora do ar) ou demorar, o app avisa e usa as regras do aparelho: a IA nunca é necessária.'));
@@ -318,12 +322,7 @@ export function createSettings(app) {
     return h('section', { class: 'st-section', id: 'st-install' },
       h('h3', {}, 'Instalar como aplicativo'),
       h('p', { class: 'muted' }, 'Abre em janela própria, funciona sem internet e fica à mão no menu iniciar ou na tela do celular.'),
-      app.installPrompt
-        ? h('button', {
-          class: 'btn btn-primary', type: 'button',
-          onclick: async () => { app.installPrompt.prompt(); await app.installPrompt.userChoice; app.installPrompt = null; render(); },
-        }, icon('phone', 16), `Instalar o ${APP_NAME}`)
-        : h('p', { class: 'muted' }, 'No Chrome ou Edge, use o ícone de instalar na barra de endereço. No iPhone (Safari): toque em Compartilhar e depois em Adicionar à Tela de Início.'));
+      installActions(app, { onChange: render })); // botão, passo a passo do iPhone ou aviso de que já está instalado (js/ui/install.js)
   }
 
   function shortcutsSection() {

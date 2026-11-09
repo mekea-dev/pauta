@@ -221,7 +221,11 @@ export const emptyState = (settings = defaultSettings()) => ({
   version: SCHEMA_VERSION, tasks: [], labels: [], deleted: {}, owner: null, seed: false, settings,
 });
 
-/** Dados de boas-vindas para o primeiro acesso. */
+/**
+ * Dados de boas-vindas (tarefas e etiquetas de exemplo). O app NÃO os cria mais (desde a 1.8.0 o primeiro acesso e a conta nova
+ * começam zerados, pedido do dono), mas aparelhos antigos ainda guardam esses dados marcados com `seed`; a função fica para os
+ * testes simularem esse caso (js/cloud/account.js descarta esses exemplos ao criar ou entrar numa conta).
+ */
 export function seedState(today, now = new Date().toISOString()) {
   const labels = [
     { id: uid(), name: 'Trabalho', color: 'blue', updatedAt: now },

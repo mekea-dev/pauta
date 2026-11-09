@@ -7,6 +7,7 @@ import { remindLabel, remindShort } from '../reminders.js';
 import { clip, h, reducedMotion } from './dom.js';
 import { icon } from './icons.js';
 import { openMenu } from './overlay.js';
+import { attachSwipe } from './swipe.js';
 
 export function taskRow(app, task, { showDate = false } = {}) {
   const { store, ui } = app;
@@ -111,5 +112,15 @@ export function taskRow(app, task, { showDate = false } = {}) {
 
   li.append(check, body);
   if (more) li.append(more);
+
+  // celular: arrastar para a direita conclui (ou reabre), para a esquerda exclui (js/ui/swipe.js); as repetições futuras não mexem
+  if (!ghost) {
+    attachSwipe(li, {
+      right: task.done
+        ? { label: 'Reabrir', armedLabel: 'Solte para reabrir', icon: 'undo', run: () => app.actions.reopen(realId) }
+        : { label: 'Concluir', armedLabel: 'Solte para concluir', icon: 'check', run: () => app.actions.complete(realId) },
+      left: { label: 'Excluir', armedLabel: 'Solte para excluir', icon: 'trash', run: () => app.actions.remove(realId) },
+    });
+  }
   return li;
 }

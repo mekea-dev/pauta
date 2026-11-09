@@ -29,8 +29,6 @@ function setup({ tasks = [], permission = 'granted', pushState = 'on', fireOk = 
   const shown = [];
   const notify = {
     async fire(r) { if (!fireOk) return false; shown.push(r.id); return true; },
-    async system(r) { shown.push(`sistema:${r.id}`); return true; },
-    inApp(r) { shown.push(`tela:${r.id}`); },
   };
   let prefValue = pref;
   const prefs = { get: () => prefValue, set: (v) => { prefValue = v; } };
@@ -222,41 +220,17 @@ test('start: ao voltar para a frente o app confere na hora', async () => {
   alerts.stop();
 });
 
-test('teste "daqui a 1 minuto": entra no espelho e na lista do serviço, e toca na hora marcada', async () => {
-  const s = setup({ now: '2026-11-10T15:00:00' });
-  await s.alerts.refresh();
-  const r = await s.alerts.test({ later: true });
-  assert.equal(r.later, true);
-  assert.equal(r.push, true);
-  const espelho = await s.mirror.read('avisos');
-  assert.equal(espelho.length, 1);
-  assert.equal(espelho[0].body, 'Aviso de teste com o app fechado. Funcionou!');
-  assert.equal(espelho[0].taskId, null);
-  assert.equal(s.sent.at(-1).length, 1);
-  // outras mudanças nas tarefas não derrubam o teste da lista
-  await s.alerts.sync();
-  assert.equal((await s.mirror.read('avisos')).length, 1);
-  assert.equal(await s.alerts.tick(), 0, 'ainda não passou 1 minuto');
-  s.clock.now = at('2026-11-10T15:01:05');
-  assert.equal(await s.alerts.tick(), 1);
-  // o teste sobrevive a recarregar a página
-  const depois = setup({ now: '2026-11-10T15:00:30' });
-  depois.data.set('teste', await s.mirror.read('teste'));
-  await depois.alerts.start();
-  assert.equal((await depois.mirror.read('avisos')).length, 1);
-  depois.alerts.stop();
-});
-
-test('teste "agora": usa a notificação do sistema; sem permissão, mostra na tela', async () => {
-  const s = setup({ permission: 'granted' });
-  await s.alerts.refresh();
-  assert.deepEqual(await s.alerts.test(), { later: false, system: true });
-  assert.ok(s.shown.some((x) => x.startsWith('sistema:')));
-  const sem = setup({ permission: 'default', pushState: 'off' });
-  await sem.alerts.refresh();
-  const r = await sem.alerts.test();
-  assert.equal(r.system, false);
-  assert.ok(sem.shown.some((x) => x.startsWith('tela:')));
+test('aviso de teste antigo (dos botões de teste, que foram retirados) que ficou no espelho não toca nem entra na lista', async () => {
+  const s = setup({ now: '2026-11-10T15:00:30' });
+  const quando = at('2026-11-10T15:01:00').getTime();
+  s.data.set('teste', { id: `teste|${quando}`, taskId: null, title: 'Teste do Pauta', at: quando, dueAt: quando, date: null, time: null, remind: 0, body: 'Aviso de teste com o app fechado. Funcionou!', day: 'Teste' });
+  await s.alerts.start();
+  assert.deepEqual(await s.mirror.read('avisos'), [], 'o espelho só tem avisos de tarefas');
+  assert.deepEqual(s.sent.at(-1), [], 'o serviço de lembretes também não recebe o teste');
+  s.clock.now = at('2026-11-10T15:01:30');
+  assert.equal(await s.alerts.tick(), 0);
+  assert.equal(s.shown.length, 0);
+  s.alerts.stop();
 });
 
 test('estado: sem serviço configurado ou sem suporte a push, os avisos com o app aberto seguem valendo', async () => {

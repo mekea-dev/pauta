@@ -1,9 +1,9 @@
 // Ponto de entrada: carrega os dados, liga as peças e desenha a tela.
 import { STORAGE_KEY, THEME_KEY } from './config.js';
-import { isValidDate, todayISO } from './dates.js';
+import { isValidDate } from './dates.js';
 import { AI_NOTICE, AI_PREF, createAi } from './ai.js';
 import { createAlerts, createMirror } from './alerts.js';
-import { sanitizeState, seedState } from './model.js';
+import { emptyState, sanitizeState } from './model.js';
 import { getStorage, loadState, saveState } from './persist.js';
 import { createPush } from './push.js';
 import { PUSH } from './push-config.js';
@@ -13,6 +13,7 @@ import { SESSION_KEY, createCloud } from './cloud/firebase.js';
 import { createSync } from './cloud/sync.js';
 import { createAccountUI } from './ui/account.js';
 import { createActions } from './ui/actions.js';
+import { createCommands } from './ui/commands.js';
 import { createComposer } from './ui/composer.js';
 import { h, isTouch, qs } from './ui/dom.js';
 import { createEditor } from './ui/editor.js';
@@ -27,7 +28,7 @@ import { renderView } from './ui/views.js';
 // ---------- dados ----------
 const storage = getStorage();
 const loaded = loadState(storage);
-const store = createStore(loaded.state ?? seedState(todayISO()));
+const store = createStore(loaded.state ?? emptyState()); // primeiro acesso: tudo zerado, sem tarefas nem etiquetas de exemplo
 if (!loaded.state) saveState(storage, store.state);
 
 // ---------- rotas (#/hoje, #/dia/2026-11-06, #/calendario/2026-11, #/etiqueta/<id>...) ----------
@@ -146,6 +147,7 @@ app.ai = createAi({
   },
 });
 app.editor = createEditor(app);
+app.commands = createCommands(app); // concluir, alterar e excluir tarefas que já existem, por voz
 app.settings = createSettings(app);
 app.composer = createComposer(app);
 app.topbar = createTopbar(app);
@@ -314,8 +316,8 @@ setInterval(() => {
 }, 30000);
 
 // instalar como app
-addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); app.installPrompt = e; app.settings.refresh(); });
-addEventListener('appinstalled', () => { app.installPrompt = null; app.settings.refresh(); toast('Pauta instalado!'); });
+addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); app.installPrompt = e; app.settings.refresh(); app.account.refreshInstall(); });
+addEventListener('appinstalled', () => { app.installPrompt = null; app.settings.refresh(); app.account.refreshInstall(); toast('Pauta instalado!'); });
 
 // sincronização entre aparelhos (só com conta)
 if (app.cloud) {
