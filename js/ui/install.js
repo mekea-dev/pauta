@@ -2,7 +2,8 @@
 // O QUE oferecer mora só aqui:
 //   - o navegador oferece instalar (app.installPrompt, guardado por js/main.js): um botão que abre o pedido dele;
 //   - iPhone e iPad no navegador: o Safari não tem botão de instalar nem avisa nada, então vai o passo a passo;
-//   - já aberto como aplicativo: não há o que instalar.
+//   - o navegador não oferece nada (janela anônima, Firefox, ou o Pauta já instalado e aberto numa aba): uma dica de como instalar;
+//   - já aberto como aplicativo, ou instalado agora há pouco: não há o que instalar.
 import { APP_NAME } from '../config.js';
 import { isIos } from '../speech.js';
 import { h } from './dom.js';
