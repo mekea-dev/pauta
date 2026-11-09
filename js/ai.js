@@ -160,6 +160,8 @@ const EVIDENCE = {
   remind: /avis|lembr|alarm|despert|antes|notific|alert/,
   label: /etiqueta|#|categoria|marcador|\btag\b/,
 };
+// o ALARME (lembrete que toca como despertador) só vale se a pessoa falou em alarme ou despertador: "me avise" não vira alarme
+const ALARM_EVIDENCE = /alarm|despert/;
 
 const WEEKDAY_WORD = /^(?:proxim[oa]\s+)?(segunda|terca|quarta|quinta|sexta|sabado|domingo)\b/; // (texto de um item de data, sem acento)
 
@@ -232,7 +234,7 @@ export function reconcile(aiText, heard, local, { today, now, weekStart = 1, cha
   const read = () => parseQuickAdd(line, { today, weekStart });
 
   for (const tk of read().tokens) {
-    const evidence = EVIDENCE[tk.type];
+    const evidence = tk.alarm ? ALARM_EVIDENCE : EVIDENCE[tk.type];
     if (!evidence || tk.derived || !tk.text) continue;
     // o sinal é largo de propósito; só um dia da semana tem que ser o MESMO que a pessoa disse ("terça" não vale por "sexta")
     const weekdayWord = tk.type === 'date' ? WEEKDAY_WORD.exec(fold(tk.text)) : null;
@@ -258,7 +260,7 @@ export function reconcile(aiText, heard, local, { today, now, weekStart = 1, cha
     if (tk.type === 'label') {
       if (!labels.has(fold(String(tk.value)))) extra.push(tk.text);
     } else if (!has.has(tk.type)) {
-      extra.push(tk.text); // a fala tinha e a IA deixou cair: volta
+      extra.push(tk.marker ? 'com alarme' : tk.text); // a fala tinha e a IA deixou cair: volta (o pedido "coloca um alarme" volta como "com alarme")
       has.add(tk.type);
     }
   }

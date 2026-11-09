@@ -7,7 +7,7 @@ import { formatShort, relativeDay } from '../dates.js';
 import { clearWinner, findTasks, soundsDone } from '../match.js';
 import { priorityLabel } from '../model.js';
 import { describe } from '../recurrence.js';
-import { remindLabel } from '../reminders.js';
+import { remindDescribe, remindLabel } from '../reminders.js';
 import { capitalizeTitle, interpretSpoken } from '../voice.js';
 import { clip } from './dom.js';
 import { choiceDialog, confirmDialog, toast } from './overlay.js';
@@ -78,7 +78,11 @@ export function createCommands(app) {
     }
     if (p.date) { patch.date = p.date; parts.push(`dia ${dayText(p.date)}`); }
     if (p.time) { patch.time = p.time; parts.push(`hora ${p.time}`); }
-    if (p.remind !== null && p.remind !== undefined) { patch.remind = p.remind; parts.push(`lembrete ${remindLabel(p.remind).toLowerCase()}`); }
+    if (p.remind !== null && p.remind !== undefined) {
+      patch.remind = p.remind;
+      patch.alarm = p.alarm === true;
+      parts.push(p.alarm ? remindDescribe(p.remind, true).toLowerCase() : `lembrete ${remindLabel(p.remind).toLowerCase()}`);
+    }
     if (p.priority) { patch.priority = p.priority; parts.push(`prioridade ${priorityLabel(p.priority).toLowerCase()}`); }
     if (p.recurrence) { patch.recurrence = p.recurrence; parts.push(`repete ${describe(p.recurrence, p.date ?? task.date).toLowerCase()}`); }
     if (p.labels.length) {

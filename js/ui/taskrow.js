@@ -3,7 +3,7 @@ import { addDays, relativeDay, startOfWeek } from '../dates.js';
 import { priorityLabel } from '../model.js';
 import { checklistProgress, isOverdue } from '../query.js';
 import { describe } from '../recurrence.js';
-import { remindLabel, remindShort } from '../reminders.js';
+import { remindBrief, remindDescribe } from '../reminders.js';
 import { clip, h, reducedMotion } from './dom.js';
 import { icon } from './icons.js';
 import { openMenu } from './overlay.js';
@@ -47,7 +47,9 @@ export function taskRow(app, task, { showDate = false } = {}) {
     meta.push(h('span', { class: `meta meta-when${overdue ? ' is-overdue' : ''}` }, icon(showDate && task.date ? 'calendar' : 'clock', 13), when));
   }
   if (task.remind != null && task.time && !task.done) {
-    meta.push(h('span', { class: 'meta', title: `Lembrete: ${remindLabel(task.remind).toLowerCase()}`, 'aria-label': `Lembrete: ${remindLabel(task.remind).toLowerCase()}` }, icon('bell', 13), remindShort(task.remind)));
+    const alarm = task.alarm === true;
+    const what = `${alarm ? '' : 'Lembrete: '}${remindDescribe(task.remind, alarm).toLowerCase()}`;
+    meta.push(h('span', { class: `meta${alarm ? ' meta-alarm' : ''}`, title: what, 'aria-label': what }, icon(alarm ? 'alarm-clock' : 'bell', 13), remindBrief(task.remind, alarm)));
   }
   if (task.priority > 0) {
     meta.push(h('span', { class: `chip prio p${task.priority}`, title: `Prioridade ${priorityLabel(task.priority).toLowerCase()}` }, icon('flag', 12), priorityLabel(task.priority)));

@@ -1,6 +1,6 @@
 // Ações que a pessoa dispara na tela (concluir, mover, excluir...), sempre com aviso e "Desfazer".
 import { formatShort, monthGrid, relativeDay } from '../dates.js';
-import { remindLabel } from '../reminders.js';
+import { remindDescribe, remindLabel } from '../reminders.js';
 import { clip } from './dom.js';
 import { confirmDialog, toast } from './overlay.js';
 
@@ -84,7 +84,7 @@ export function createActions(app) {
       const parts = [];
       if (task.date) parts.push(`${dayAndDate(task.date, store.today())}${task.time ? ` às ${task.time}` : ''}`);
       else parts.push('sem data');
-      if (task.remind !== null) parts.push(`avisa ${remindLabel(task.remind).toLowerCase()}`);
+      if (task.remind !== null) parts.push(task.alarm ? remindDescribe(task.remind, true).toLowerCase() : `avisa ${remindLabel(task.remind).toLowerCase()}`);
       else if (remindLost) parts.push('sem lembrete (faltou a hora)');
       toast(`Criada: “${clip(task.title, 40)}” · ${parts.join(' · ')}`, { action: undo(), timeout: 10000 });
     },

@@ -23,6 +23,18 @@ export function remindShort(minutes) {
   return `${minutes} min`;
 }
 
+/** O que o lembrete é, por extenso: "15 minutos antes"; no alarme, "Alarme 15 minutos antes" ou "Alarme na hora". */
+export function remindDescribe(minutes, alarm = false) {
+  if (!alarm) return remindLabel(minutes);
+  return minutes === 0 ? 'Alarme na hora' : `Alarme ${remindLabel(minutes).toLowerCase()}`;
+}
+
+/** O mesmo, curto, para a linha da tarefa: "15 min"; no alarme, "alarme" ou "alarme 15 min". */
+export function remindBrief(minutes, alarm = false) {
+  if (!alarm) return remindShort(minutes);
+  return minutes === 0 ? 'alarme' : `alarme ${remindShort(minutes)}`;
+}
+
 /** Quando a tarefa vence (hora local), ou null se não tem data e hora. */
 export function dueAt(task) {
   if (!task?.date || !task?.time) return null;
@@ -38,12 +50,19 @@ export function remindAt(task) {
   return due && Number.isInteger(task.remind) ? new Date(due.getTime() - task.remind * 60000) : null;
 }
 
-/** Um aviso: `id` muda se a data, a hora ou a antecedência mudarem (então um aviso novo pode tocar de novo). */
+/**
+ * Um aviso: `id` muda se a data, a hora ou a antecedência mudarem (então um aviso novo pode tocar de novo).
+ * `alarm: true` só aparece nos alarmes (js/alarm.js cuida deles: tocam até a pessoa parar ou adiar).
+ */
 function entry(task, at, due) {
-  return { id: `${task.id}|${at.toISOString()}`, taskId: task.id, title: task.title, at: at.getTime(), dueAt: due.getTime(), date: task.date, time: task.time, remind: task.remind };
+  return {
+    id: `${task.id}|${at.toISOString()}`, taskId: task.id, title: task.title, at: at.getTime(), dueAt: due.getTime(), date: task.date, time: task.time, remind: task.remind,
+    ...(task.alarm === true ? { alarm: true } : {}),
+  };
 }
 
-function entries(tasks) {
+/** Todos os avisos das tarefas abertas, comuns e alarmes, do mais cedo ao mais tarde. */
+export function reminderEntries(tasks) {
   const out = [];
   for (const t of tasks) {
     if (t.done) continue;
@@ -53,19 +72,19 @@ function entries(tasks) {
   return out.sort((a, b) => a.at - b.at);
 }
 
-/** Avisos que ainda vão tocar (do mais próximo para o mais distante). */
+/** Avisos comuns que ainda vão tocar (do mais próximo para o mais distante). Os alarmes ficam de fora: veja js/alarm.js. */
 export function upcoming(tasks, now = new Date(), { horizonMs = 30 * 86400000, limit = 200 } = {}) {
   const t = now.getTime();
-  return entries(tasks).filter((r) => r.at > t && r.at <= t + horizonMs).slice(0, limit);
+  return reminderEntries(tasks).filter((r) => !r.alarm && r.at > t && r.at <= t + horizonMs).slice(0, limit);
 }
 
 /**
- * Avisos que já estão na hora de tocar: o horário do aviso passou, mas a tarefa não está atrasada há muito tempo
- * (`lateMs`). Serve também para avisar de algo que passou com o app fechado.
+ * Avisos comuns que já estão na hora de tocar: o horário do aviso passou, mas a tarefa não está atrasada há muito tempo
+ * (`lateMs`). Serve também para avisar de algo que passou com o app fechado. Os alarmes ficam de fora: veja js/alarm.js.
  */
 export function due(tasks, now = new Date(), { lateMs = 30 * 60000 } = {}) {
   const t = now.getTime();
-  return entries(tasks).filter((r) => r.at <= t && r.dueAt + lateMs >= t);
+  return reminderEntries(tasks).filter((r) => !r.alarm && r.at <= t && r.dueAt + lateMs >= t);
 }
 
 /** Texto do aviso: "Hoje às 16:00 · em 15 minutos". */

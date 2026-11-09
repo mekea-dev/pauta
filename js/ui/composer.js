@@ -10,7 +10,7 @@ import { WEEKDAYS_SHORT, capitalize, diffDays, relativeDay, weekday } from '../d
 import { priorityLabel } from '../model.js';
 import { parseQuickAdd } from '../parser.js';
 import { describe } from '../recurrence.js';
-import { remindLabel } from '../reminders.js';
+import { remindDescribe } from '../reminders.js';
 import { createSpeech, createSpeechMemory, describeSpeechError } from '../speech.js';
 import { fold } from '../text.js';
 import { capitalizeTitle, interpretSpoken } from '../voice.js';
@@ -28,8 +28,8 @@ const EXAMPLES = [
 ];
 
 const NO_WORDS_MS = 8000; // microfone ligado e nenhuma palavra por tanto tempo: avisa
-const KEYBOARD_HELP = 'Toque no microfone do teclado e fale, por exemplo: “crie uma tarefa pagar boleto para dia 10 às 16 horas”. Depois toque em Adicionar.';
-const BLOCKED_NOTE = 'O microfone do app não está disponível neste aparelho (no iPhone, o modo app costuma bloquear). Use o microfone do teclado: toque nele, fale e depois toque em Adicionar.';
+const KEYBOARD_HELP = 'Toque no microfone do teclado e fale, por exemplo: “crie uma tarefa pagar boleto para dia 10 às 16 horas”. Depois aperte Enter, no teclado.';
+const BLOCKED_NOTE = 'O microfone do app não está disponível neste aparelho (no iPhone, o modo app costuma bloquear). Use o microfone do teclado: toque nele, fale e depois aperte Enter, no teclado.';
 
 export function createComposer(app) {
   const { store } = app;
@@ -55,11 +55,12 @@ export function createComposer(app) {
     waiting = null;
     aiAbort?.abort(); // se a IA ainda estava respondendo, abandona o pedido
     aiAbort = null;
-    if (addBtn) addBtn.disabled = false;
   };
 
+  // Não há botão "Adicionar": no computador é clicar na linha, digitar e apertar Enter; no celular, o "+" flutuante leva ao campo e a tecla
+  // de enviar do teclado faz o mesmo que o Enter. (Um formulário com um só campo de texto envia com o Enter, sem botão.)
   const input = h('input', {
-    class: 'composer-input', type: 'text', maxlength: 300, autocomplete: 'off', enterkeyhint: 'done',
+    class: 'composer-input', type: 'text', maxlength: 300, autocomplete: 'off', enterkeyhint: 'send',
     'aria-label': 'Nova tarefa', 'aria-describedby': 'composer-hint',
     placeholder,
     oninput: () => {
@@ -86,11 +87,10 @@ export function createComposer(app) {
   const note = h('p', { class: 'composer-note', role: 'status', hidden: true });
   const hint = h('p', { class: 'composer-hint', id: 'composer-hint', hidden: true },
     'Escreva do seu jeito: ', h('b', {}, 'amanhã'), ', ', h('b', {}, 'sexta'), ', ', h('b', {}, '15/11'), ', ', h('b', {}, '14h'), ', ',
-    h('b', {}, '!alta'), ', ', h('b', {}, '#etiqueta'), ', ', h('b', {}, 'toda segunda'), ', ', h('b', {}, 'me avise 15 min antes'), '… Ou toque no microfone e fale.');
-  const addBtn = h('button', { class: 'btn btn-primary composer-add', type: 'submit' }, icon('plus', 18), h('span', {}, 'Adicionar'));
-  // Enter (ou "Adicionar") enquanto o microfone ouve = "terminei": para de ouvir e entende o que foi dito
+    h('b', {}, '!alta'), ', ', h('b', {}, '#etiqueta'), ', ', h('b', {}, 'toda segunda'), ', ', h('b', {}, 'me avise 15 min antes'), '… e aperte ', h('b', {}, 'Enter'), '. Ou toque no microfone e fale.');
+  // Enter enquanto o microfone ouve = "terminei": para de ouvir e entende o que foi dito
   const form = h('form', { class: 'composer', autocomplete: 'off', onsubmit: (e) => { e.preventDefault(); if (speech.listening) stopListening(); else submit(); } },
-    h('div', { class: 'composer-box' }, h('span', { class: 'composer-icon' }, icon('plus', 20)), input, micBtn, addBtn),
+    h('div', { class: 'composer-box' }, h('span', { class: 'composer-icon' }, icon('plus', 20)), input, micBtn),
     preview, note, hint);
 
   const rotatePlaceholder = () => {
@@ -101,9 +101,10 @@ export function createComposer(app) {
   const showHint = () => { hint.hidden = !(document.activeElement === input && !input.value); };
 
   // ---------- recado sob o campo (ouvindo, erro do microfone, como ditar) ----------
+  /** `action`: um botão em forma de link ({ label, onClick }) ou uma lista deles, com textos soltos no meio ("ou"). */
   function showNote(text, kind = 'info', action = null) {
     note.replaceChildren(text);
-    if (action) note.append(' ', h('button', { class: 'link-btn', type: 'button', onclick: action.onClick }, action.label));
+    for (const a of [].concat(action ?? [])) note.append(' ', typeof a === 'string' ? a : h('button', { class: 'link-btn', type: 'button', onclick: a.onClick }, a.label));
     note.dataset.kind = kind;
     note.hidden = false;
   }
@@ -180,7 +181,7 @@ export function createComposer(app) {
         setListening(false);
         if (paused && text) { // o app parou de ouvir sozinho: nada foi enviado, o texto fica no campo para continuar ou criar
           pausedText = text;
-          showNote('Parei de ouvir. Toque em Adicionar para criar a tarefa, ou', 'info', { label: 'continue falando', onClick: () => onMic() });
+          showNote('Parei de ouvir.', 'info', [{ label: 'Criar a tarefa', onClick: () => submit() }, 'ou', { label: 'continue falando', onClick: () => onMic() }]);
         } else if (!text && !failed && !canceled) {
           showNote(describeSpeechError('no-speech').text, 'warn'); // parou sem ter ouvido nada
         }
@@ -212,7 +213,7 @@ export function createComposer(app) {
     const labelIds = store.ensureLabels(p.labels);
     if (ctx.labelId && store.state.labels.some((l) => l.id === ctx.labelId) && !labelIds.includes(ctx.labelId)) labelIds.push(ctx.labelId);
     const fields = {
-      title: p.title, date: p.effectiveDate, time: p.time, remind: p.remind,
+      title: p.title, date: p.effectiveDate, time: p.time, remind: p.remind, alarm: p.alarm,
       priority: p.priority ?? ctx.priority ?? 0, labels: labelIds, recurrence: p.recurrence, notes: aiExtra?.notes ?? '',
     };
     input.value = '';
@@ -279,7 +280,8 @@ export function createComposer(app) {
     if (p.date) chips.push(chip('calendar', dateText(p.date, today), dateTok && !dateTok.derived ? 'date' : null));
     if (p.time) chips.push(chip('clock', p.time, 'time'));
     if (p.remind !== null && p.remind !== undefined) {
-      chips.push(p.time ? chip('bell', remindLabel(p.remind), 'remind') : chip('bell-off', `${remindLabel(p.remind)}: falta a hora`, 'remind', 'warn'));
+      const what = remindDescribe(p.remind, p.alarm);
+      chips.push(p.time ? chip(p.alarm ? 'alarm-clock' : 'bell', what, 'remind') : chip('bell-off', `${what}: falta a hora`, 'remind', 'warn'));
     }
     if (p.priority) chips.push(chip('flag', priorityLabel(p.priority), 'priority', `p${p.priority}`));
     if (p.recurrence) chips.push(chip('repeat', describe(p.recurrence, p.date), 'recurrence'));
@@ -303,7 +305,6 @@ export function createComposer(app) {
     const controller = new AbortController();
     waiting = heard;
     aiAbort = controller;
-    addBtn.disabled = true;
     if (app.ai.needsNotice()) { // ligada só porque é o padrão: no primeiro uso, avisa o que acontece com a frase falada
       app.ai.noticed();
       toast('A IA está ligada para entender melhor o que você fala: só o texto falado vai ao serviço do Pauta, que não o guarda. Para desligar, vá em Configurações.', { timeout: 10000 });
@@ -327,7 +328,6 @@ export function createComposer(app) {
     speech.note('ai-end', r.ok ? 'ok' : r.reason);
     if (input.value !== heard) return false; // a pessoa digitou, limpou ou falou de novo: esta resposta ficou velha
     waiting = null;
-    addBtn.disabled = false;
     if (note.dataset.kind === 'ai') clearNote();
     aiRead = true;
     if (r.ok) {
@@ -353,7 +353,7 @@ export function createComposer(app) {
     speech.note('ai-command', res.acao);
     const out = res.ok
       ? await app.commands.run(res, heard)
-      : { done: false, message: 'Parece que você quer mexer numa tarefa que já existe, mas não percebi qual. Diga o nome dela de novo ou toque em Adicionar para criar uma tarefa nova.' };
+      : { done: false, message: 'Parece que você quer mexer numa tarefa que já existe, mas não percebi qual. Diga o nome dela de novo ou aperte Enter para criar uma tarefa nova.' };
     if (out.done) {
       input.value = '';
       ignore = {};
@@ -382,7 +382,6 @@ export function createComposer(app) {
         // a tela nunca fica presa esperando a IA: segue com as regras do aparelho
         waiting = null;
         aiAbort = null;
-        addBtn.disabled = false;
         if (note.dataset.kind === 'ai') clearNote();
       }
       if (!go || go === 'handled') return; // abandonou (mexeram no campo) ou foi um comando sobre tarefa que já existe
@@ -410,7 +409,7 @@ export function createComposer(app) {
     const labelIds = store.ensureLabels(p.labels);
     if (ctx.labelId && store.state.labels.some((l) => l.id === ctx.labelId) && !labelIds.includes(ctx.labelId)) labelIds.push(ctx.labelId);
     const task = store.addTask({
-      title: spoken ? capitalizeTitle(p.title) : p.title, date, time: p.time, remind: p.remind, priority: p.priority ?? ctx.priority ?? 0, labels: labelIds, recurrence: p.recurrence, notes,
+      title: spoken ? capitalizeTitle(p.title) : p.title, date, time: p.time, remind: p.remind, alarm: p.alarm, priority: p.priority ?? ctx.priority ?? 0, labels: labelIds, recurrence: p.recurrence, notes,
     });
     if (!task) return;
     if (byVoice) speech.note('created');

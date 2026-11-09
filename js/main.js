@@ -2,6 +2,7 @@
 import { STORAGE_KEY, THEME_KEY } from './config.js';
 import { isValidDate } from './dates.js';
 import { AI_NOTICE, AI_PREF, createAi } from './ai.js';
+import { ALARM_STATE_KEY, createAlarmState } from './alarm.js';
 import { createAlerts, createMirror } from './alerts.js';
 import { emptyState, sanitizeState } from './model.js';
 import { getStorage, loadState, saveState } from './persist.js';
@@ -13,6 +14,7 @@ import { SESSION_KEY, createCloud } from './cloud/firebase.js';
 import { createSync } from './cloud/sync.js';
 import { createAccountUI } from './ui/account.js';
 import { createActions } from './ui/actions.js';
+import { createAlarmScreen } from './ui/alarm.js';
 import { createCommands } from './ui/commands.js';
 import { createComposer } from './ui/composer.js';
 import { h, isTouch, qs } from './ui/dom.js';
@@ -97,11 +99,16 @@ app.account = createAccountUI(app);
 // lembretes: avisa na hora certa (com o app aberto, aqui; com o app fechado, pelo serviço de lembretes + sw.js). A escolha de
 // ligar ou desligar vale só para este aparelho (por isso fica fora dos dados que vão para a nuvem).
 const ALERTS_PREF = 'pauta:avisos';
+// alarme (lembrete que toca até a pessoa parar ou adiar): a tela cobre o app; o que foi parado ou adiado fica só neste aparelho
+const alarmState = createAlarmState({ storage });
+app.alarm = createAlarmScreen(app);
 app.alerts = createAlerts({
   store,
   mirror: createMirror(),
   push: createPush({ workerUrl: PUSH.workerUrl }),
   notify: createNotifier(app),
+  alarmState,
+  ring: { update: (list) => app.alarm.update(list) },
   prefs: {
     get() {
       try {
@@ -267,6 +274,7 @@ function openTaskFromHash() {
 }
 navigator.serviceWorker?.addEventListener('message', (e) => {
   if (e.data?.type === 'abrir-tarefa') openTask(e.data.id);
+  if (e.data?.type === 'abrir-alarme') app.alerts.checkAlarms(); // tocou na notificação do alarme: a tela do alarme aparece se ele ainda toca
 });
 
 qs('#scrim').addEventListener('click', () => app.toggleSidebar(false));
@@ -299,8 +307,9 @@ document.addEventListener('visibilitychange', () => {
   else render(); // pode ter virado o dia enquanto estava em segundo plano
 });
 
-// outra aba do mesmo navegador mexeu nos dados
+// outra aba do mesmo navegador mexeu nos dados (ou parou um alarme)
 addEventListener('storage', (e) => {
+  if (e.key === ALARM_STATE_KEY) alarmState.reload();
   if (e.key !== STORAGE_KEY || !e.newValue) return;
   try {
     const next = sanitizeState(JSON.parse(e.newValue));
@@ -368,4 +377,5 @@ app.account.start(); // login obrigatório: sem sessão, a tela de entrada vem a
 paint(); // primeiro desenho na hora, sem esperar o próximo quadro
 openTaskFromHash();
 if (!isTouch() && !app.account.gated) setTimeout(() => app.composer.focus(), 0);
+app.alarm.prepare(); // o primeiro toque na tela libera o som: quando o alarme tocar, ele já pode sair
 app.alerts.start().catch(() => {}); // lembretes: nunca podem impedir o app de abrir

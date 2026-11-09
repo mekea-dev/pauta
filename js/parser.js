@@ -26,6 +26,10 @@ const START = '(^|\\s)';
 const END = '(?=$|[\\s.,;:!?])';
 const PREP = '(?:(?:para|pra|ate|em|no|na|ao|do|da|de)\\s+)?';
 const TRAILING_CONNECTOR = /(?:^|\s)(?:para|pra|em|no|na|nos|nas|ate|as|às|ao|de|do|da|por|e|com)$/i;
+// a palavra "alarme" no começo do que sobrou do título (com hora, é o pedido de um ALARME): "Alarme", "um alarme", "coloca um alarme",
+// "alarme para acordar". "Alarme de incêndio" e "Trocar a bateria do alarme" continuam sendo só título.
+const ALARM_TITLE = /^(?:(?:coloque|coloca|colocar|crie|cria|criar|defina|define|definir|programe|programa|programar|ponha|bota|bote|configure|configura|ative|ativa|ativar|marque|marca|marcar|adicione|adiciona|adicionar)\s+)?(?:(?:um|o)\s+)?(?:alarme|despertador)(?:\s+(?:para|pra)\s+(.+))?$/;
+const ALARM_WORD = /(?:^|\s)(?:alarme|despertador)(?=$|\s)/;
 
 /** Qual `ignore` desliga cada tipo de trecho reconhecido. */
 export const IGNORE_KEY = { date: 'date', time: 'time', priority: 'priority', recurrence: 'recurrence', label: 'labels', remind: 'remind' };
@@ -87,7 +91,7 @@ export function parseQuickAdd(input, { today = todayISO(), weekStart = 1, ignore
   let f = fold(text);
   const cuts = [];
   const tokens = [];
-  const res = { title: '', date: null, time: null, priority: null, labels: [], recurrence: null, remind: null, tokens };
+  const res = { title: '', date: null, time: null, priority: null, labels: [], recurrence: null, remind: null, alarm: false, tokens };
 
   // Recorta o trecho casado (sem o espaço inicial nem o final) e devolve o texto original dele. O espaço do fim fica de fora porque pode
   // ser o "buraco" de um trecho já recortado ("às 15:00 !alta": o !alta virou espaço); senão o texto do horário engoliria o !alta.
@@ -157,18 +161,22 @@ export function parseQuickAdd(input, { today = todayISO(), weekStart = 1, ignore
 
   // ---- lembrete ("despertador"): "me avise 15 minutos antes", "lembrete 1 hora antes", "avisar na hora" ----
   // Precisa de uma palavra de aviso (avise, lembrete, alarme...): "Chegar 10 minutos antes" continua sendo só título.
+  // Com "alarme" ou "despertador" o lembrete vira ALARME (toca até a pessoa parar ou adiar): "alarme 15 minutos antes",
+  // "alarme na hora", "com alarme".
   if (!ignore.remind) {
     const kw = '(?:(?:me )?(?:avis[ae]r?|lembr[ae]r?|alert[ae]r?|notific[ae]r?)(?:-me)?|lembrete|alarme|despertador|aviso|alerta)';
     const attempts = [
       [`${START}${kw}(?:\\s+(?:de|com|em|para|por))?\\s+(\\d{1,4}|${NUM_SRC}|meia|meio)\\s*(minutos?|mins?|horas?|hrs?|hs?|dias?)\\s+(?:de\\s+)?(?:antes|antecedencia)${END}`,
         (m) => remindMinutes(m[2], m[3])],
       [`${START}${kw}\\s+(?:na hora|no horario|no momento|pontualmente)${END}`, () => 0],
+      [`${START}com\\s+(?:(?:um|o)\\s+)?(?:alarme|despertador)${END}`, () => 0],
     ];
     for (const [src, make] of attempts) {
       const hit = scan(f, src, make);
       if (hit) {
         res.remind = hit.value;
-        tokens.push({ type: 'remind', text: cut(hit.m), value: hit.value });
+        res.alarm = ALARM_WORD.test(hit.m[0]);
+        tokens.push({ type: 'remind', text: cut(hit.m), value: hit.value, ...(res.alarm ? { alarm: true } : {}) });
         break;
       }
     }
@@ -291,5 +299,18 @@ export function parseQuickAdd(input, { today = todayISO(), weekStart = 1, ignore
     title = title.replace(/^[\s,;:.\-–—]+|[\s,;:\-–—]+$/g, '');
   }
   res.title = title;
+
+  // ---- alarme pedido pelo título: "Alarme às 7h", "coloca um alarme para acordar às 6" (só com hora, senão é um título comum) ----
+  if (!ignore.remind && !res.alarm && res.time) {
+    const m = ALARM_TITLE.exec(fold(title));
+    if (m) {
+      const rest = m[1] ? title.slice(title.length - m[1].length).trim() : '';
+      res.alarm = true;
+      if (res.remind === null) res.remind = 0;
+      // `marker`: o texto vem do título (não foi recortado dele); o app o descreve como "com alarme" ao juntar com a resposta da IA
+      tokens.push({ type: 'remind', text: rest ? title.slice(0, title.length - rest.length).trim() : title, value: res.remind, alarm: true, marker: true });
+      res.title = rest || 'Alarme';
+    }
+  }
   return res;
 }

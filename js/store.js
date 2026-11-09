@@ -100,7 +100,7 @@ export function createStore(initial, { clock = () => new Date(), maxUndo = 50 } 
       if (cur.recurrence) {
         const date = nextAfter(cur.recurrence, cur.date ?? today(), today());
         spawned = createTask({
-          title: cur.title, notes: cur.notes, date, time: cur.time, remind: cur.remind, priority: cur.priority, labels: cur.labels, recurrence: cur.recurrence,
+          title: cur.title, notes: cur.notes, date, time: cur.time, remind: cur.remind, alarm: cur.alarm, priority: cur.priority, labels: cur.labels, recurrence: cur.recurrence,
           checklist: cur.checklist.map((c) => ({ id: uid(), text: c.text, done: false })),
         }, now);
       }

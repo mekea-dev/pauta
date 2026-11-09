@@ -113,7 +113,9 @@ export function createSettings(app) {
       h('p', { class: 'muted' }, text),
       buttons.length ? h('div', { class: 'btn-row' }, buttons) : null,
       alertsStatus ? h('p', { class: `status${alertsStatus.bad ? ' bad' : ''}`, role: 'status' }, alertsStatus.text) : null,
-      h('p', { class: 'muted' }, 'O serviço que dá o aviso com o app fechado só recebe o horário dos lembretes, nunca o título ou o conteúdo das suas tarefas.'));
+      h('p', { class: 'muted' }, 'O serviço que dá o aviso com o app fechado só recebe o horário dos lembretes, nunca o título ou o conteúdo das suas tarefas.'),
+      h('p', {}, h('b', {}, 'Alarme.'), ' Numa tarefa com data e hora, ligue “Tocar como alarme”. Com o app aberto ele toca (som e vibração) até você tocar em Parar ou Adiar. Com o app fechado ele chega como notificação que se repete a cada minuto, por 10 minutos; tocar nela abre a tela do alarme. O som depende do aparelho (volume, modo silencioso, Foco): confira aqui.'),
+      h('div', { class: 'btn-row' }, btn('Ouvir o alarme', () => app.alarm.test(), { iconName: 'alarm-clock' })));
   }
 
   // ---------- entender a fala com IA ----------

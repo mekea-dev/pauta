@@ -5,7 +5,7 @@
 import { WEEKDAYS, addDays, capitalize, formatStamp, relativeDay, startOfWeek, todayISO, weekday, weekdayLabels } from '../dates.js';
 import { LIMITS, PRIORITIES, createTask, mergePatch, uid } from '../model.js';
 import { PRESETS, describe, presetOf } from '../recurrence.js';
-import { REMIND_PRESETS, remindAt, remindLabel } from '../reminders.js';
+import { REMIND_PRESETS, remindAt, remindDescribe, remindLabel } from '../reminders.js';
 import { clip, h, isTouch } from './dom.js';
 import { icon } from './icons.js';
 import { toast } from './overlay.js';
@@ -22,7 +22,7 @@ export function createEditor(app) {
 
   let taskId = null;
   let draft = null; // tarefa NOVA que ainda não existe na lista (veio da fala); null = está editando uma tarefa que já existe
-  let draftInfo = null; // { heard: o que foi dito, issues: o que não ficou claro, wantRemind: lembrete pedido que espera a hora }
+  let draftInfo = null; // { heard: o que foi dito, issues: o que não ficou claro, wantRemind: lembrete pedido que espera a hora, wantAlarm: era um alarme }
   let items = []; // rascunho do checklist: { id, text, done }
   let pending = {};
   let timer = 0;
@@ -50,10 +50,16 @@ export function createEditor(app) {
 
   /** No rascunho as mudanças ficam só na memória, com as mesmas regras de uma tarefa de verdade (mergePatch + createTask). */
   function applyToDraft(patch) {
-    if ('remind' in patch) draftInfo.wantRemind = null; // a pessoa mexeu no lembrete: vale a escolha dela
+    if ('remind' in patch || 'alarm' in patch) { // a pessoa mexeu no lembrete: vale a escolha dela
+      draftInfo.wantRemind = null;
+      draftInfo.wantAlarm = false;
+    }
     const merged = mergePatch(draft, patch, store.today());
-    // pediu "avise 15 minutos antes" sem dizer a hora: o pedido espera, e vale assim que a hora for escolhida
-    if (!('remind' in patch) && merged.remind == null && draftInfo.wantRemind != null) merged.remind = draftInfo.wantRemind;
+    // pediu "avise 15 minutos antes" (ou um alarme) sem dizer a hora: o pedido espera, e vale assim que a hora for escolhida
+    if (!('remind' in patch) && merged.remind == null && draftInfo.wantRemind != null) {
+      merged.remind = draftInfo.wantRemind;
+      if (draftInfo.wantAlarm) merged.alarm = true;
+    }
     draft = { ...createTask(merged, draft.createdAt), id: draft.id };
   }
   function queue(patch, now = false) {
@@ -97,7 +103,10 @@ export function createEditor(app) {
     taskId = null;
     draft = createTask(fields, new Date().toISOString());
     const wanted = Number.isInteger(fields.remind) ? fields.remind : info.wantRemind;
-    draftInfo = { heard: info.heard ?? '', issues: info.issues ?? [], wantRemind: Number.isInteger(wanted) ? wanted : null };
+    draftInfo = {
+      heard: info.heard ?? '', issues: info.issues ?? [], wantRemind: Number.isInteger(wanted) ? wanted : null,
+      wantAlarm: Number.isInteger(wanted) && (fields.alarm === true || info.wantAlarm === true),
+    };
     pending = {};
     forceCustom = false;
     items = draft.checklist.map((x) => ({ ...x }));
@@ -252,6 +261,15 @@ export function createEditor(app) {
     c.remind = h('select', { class: 'input', 'aria-label': 'Lembrete', onchange: () => queue({ remind: c.remind.value === '' ? null : Number(c.remind.value) }, true) });
     c.remindHint = h('div', { class: 'hint remind-hint' });
     remindSig = '';
+    // --- alarme: o lembrete toca como despertador até a pessoa parar ou adiar (se não havia lembrete, liga um "na hora") ---
+    c.alarm = h('input', {
+      class: 'switch', type: 'checkbox', role: 'switch', 'aria-label': 'Tocar como alarme',
+      onchange: () => {
+        const cur = current();
+        if (cur) queue(c.alarm.checked ? { alarm: true, remind: cur.remind ?? 0 } : { alarm: false }, true);
+      },
+    });
+    c.alarmLine = h('label', { class: 'ctrl-line alarm-line' }, c.alarm, icon('alarm-clock', 15), h('span', {}, 'Tocar como alarme'));
 
     // --- prioridade ---
     c.prio = PRIORITIES.map((p) => h('button', {
@@ -336,7 +354,7 @@ export function createEditor(app) {
       h('div', { class: 'ed-fields' },
         row('calendar', 'Data', h('div', { class: 'ctrl-line' }, c.date, c.dateHint), h('div', { class: 'ctrl-line wrap' }, quick)),
         row('clock', 'Hora', h('div', { class: 'ctrl-line' }, c.time.el, c.timeClear)),
-        row('bell', 'Lembrete', c.remind, c.remindHint),
+        row('bell', 'Lembrete', c.remind, c.alarmLine, c.remindHint),
         row('flag', 'Prioridade', h('div', { class: 'seg', role: 'group', 'aria-label': 'Prioridade' }, c.prio)),
         row('tag', 'Etiquetas', c.labels, c.newLabel),
         row('repeat', 'Repetir', c.rec, c.recCustom, c.recHint)),
@@ -418,17 +436,27 @@ export function createEditor(app) {
     }
     c.remind.value = remind === null ? '' : String(remind);
     c.remind.disabled = !hasTime;
+    c.alarm.checked = remind !== null && t.alarm === true;
+    c.alarm.disabled = !hasTime;
+    c.alarmLine.classList.toggle('is-disabled', !hasTime);
     c.remindHint.replaceChildren(...remindHint(t, remind, hasTime));
   }
 
   function remindHint(t, remind, hasTime) {
     if (!hasTime) {
-      if (draft && draftInfo.wantRemind !== null) return [`Você pediu aviso ${remindLabel(draftInfo.wantRemind).toLowerCase()}. Escolha a hora e ele é ligado.`];
-      return ['Escolha uma data e uma hora para poder ter lembrete.'];
+      if (draft && draftInfo.wantRemind !== null) {
+        const wanted = draftInfo.wantAlarm ? remindDescribe(draftInfo.wantRemind, true) : `aviso ${remindLabel(draftInfo.wantRemind)}`;
+        return [`Você pediu ${wanted.toLowerCase()}. Escolha a hora e ele é ligado.`];
+      }
+      return ['Escolha uma data e uma hora para poder ter lembrete ou alarme.'];
     }
-    if (remind === null) return ['Escolha quanto tempo antes você quer ser avisado.'];
+    if (remind === null) return ['Escolha quanto tempo antes você quer ser avisado, ou ligue o alarme.'];
     const at = remindAt(t);
-    const lines = [at.getTime() <= Date.now() ? 'Esse horário de aviso já passou.' : `Você será avisado ${relativeDay(todayISO(at), store.today()).toLowerCase()} às ${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}.`];
+    const day = relativeDay(todayISO(at), store.today()).toLowerCase();
+    const clock = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+    let first = `Você será avisado ${day} às ${clock}.`;
+    if (t.alarm) first = `O alarme toca ${day} às ${clock} e só para quando você tocar em Parar ou Adiar. Com o app fechado, chega como notificação que se repete a cada minuto.`;
+    const lines = [at.getTime() <= Date.now() ? 'Esse horário de aviso já passou.' : first];
     const a = app.alerts.status();
     if (a.muted) lines.push(' Os avisos estão desligados neste aparelho (veja em Configurações).');
     else if (a.permission === 'denied') lines.push(' Os avisos estão bloqueados neste aparelho: libere nas configurações do sistema.');

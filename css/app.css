@@ -727,8 +727,6 @@ body.gated .app, body.gated .fab { display: none; }
   .wd { padding: 6px 0 5px; border-radius: 10px; }
   .wd-num { font-size: 16px; }
   .wd-name { font-size: 10px; letter-spacing: .03em; }
-  .composer-add span { display: none; }
-  .composer-add { padding: 0 11px; }
   .main { padding-bottom: 110px; }
 
   .dialog { width: 100vw; max-width: 100vw; max-height: 94vh; max-height: 94dvh; margin: auto 0 0; border-radius: 18px 18px 0 0; }
@@ -794,10 +792,51 @@ body.gated .app, body.gated .fab { display: none; }
 /* ---------- convite para instalar o Pauta (js/ui/install.js): topo da tela de entrada e da janela de conta ---------- */
 .install-slot { margin: 0 0 20px; }
 .install-note {
-  display: flex; align-items: center; gap: 12px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px;
   padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2);
 }
 .install-note > .icon { color: var(--accent); }
 .install-note-text { display: grid; flex: 1; min-width: 0; gap: 2px; color: var(--text-2); font-size: 13px; line-height: 1.35; }
 .install-note-text strong { color: var(--text); font-size: 14px; font-weight: 680; }
 .install-note > .btn { flex: none; }
+/* "Como instalar": o painel ocupa a linha de baixo do bloco */
+.install-note-panel { flex: 1 1 100%; min-width: 0; padding-top: 10px; border-top: 1px solid var(--border); color: var(--text-2); font-size: 13px; line-height: 1.4; }
+.install-how { display: grid; gap: 8px; margin: 0; padding-left: 18px; }
+.install-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.install-copy-status { color: var(--text-2); }
+.install-address { width: 100%; margin-top: 8px; font-size: 13px; }
+
+/* ---------- alarme (js/ui/alarm.js, js/alarm.js) ---------- */
+.alarm-line { gap: 8px; color: var(--text-2); font-size: 14px; cursor: pointer; }
+.alarm-line > .icon { color: var(--accent); }
+.alarm-line.is-disabled { opacity: .55; cursor: not-allowed; }
+.alarm-line.is-disabled .switch { cursor: not-allowed; }
+.meta-alarm { color: var(--accent); font-weight: 600; }
+
+/* a tela que cobre o app quando o alarme toca */
+.alarm-dialog {
+  position: fixed; inset: 0; width: 100vw; max-width: none; height: 100vh; height: 100dvh; max-height: none;
+  margin: 0; padding: 0; border: 0; background: var(--bg); color: var(--text); overflow-y: auto;
+}
+.alarm-dialog[open] { display: flex; align-items: center; justify-content: center; }
+.alarm-dialog::backdrop { background: var(--bg); }
+.alarm-body {
+  display: grid; justify-items: center; gap: 8px; width: min(440px, 100%); box-sizing: border-box;
+  padding: 24px 20px calc(24px + env(safe-area-inset-bottom)); text-align: center;
+}
+.alarm-ring {
+  display: grid; place-items: center; width: 112px; height: 112px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent); animation: alarm-pulse 1s ease-in-out infinite;
+}
+.alarm-kind { margin: 8px 0 0; color: var(--text-3); font-size: 14px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.alarm-time { margin: 0; font-size: clamp(64px, 24vw, 120px); font-weight: 760; line-height: 1; font-variant-numeric: tabular-nums; }
+.alarm-title { margin: 6px 0 0; font-size: 24px; font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; }
+.alarm-day, .alarm-more { margin: 0; color: var(--text-2); font-size: 15px; }
+.alarm-stop { width: 100%; min-height: 68px; margin-top: 18px; border-radius: 16px; font-size: 22px; }
+.alarm-snooze { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
+.alarm-snooze-btn { min-height: 54px; border-radius: 14px; font-size: 16px; }
+.alarm-done { margin-top: 4px; }
+.alarm-hint { margin: 10px 0 0; padding: 8px 12px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); font-size: 14px; font-weight: 600; }
+.alarm-hint[hidden] { display: none; }
+@keyframes alarm-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+@media (prefers-reduced-motion: reduce) { .alarm-ring { animation: none; } }
