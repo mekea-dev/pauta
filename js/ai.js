@@ -61,8 +61,7 @@ export function createAi({ workerUrl, getToken, isLoggedIn = () => true, prefs, 
       return { ok: false, reason: e?.code === 'network' ? 'offline' : 'login' };
     }
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    timer?.unref?.();
+    const timer = setTimeout(() => controller.abort(), timeoutMs); // (sem unref: no Node dos testes, este relógio é o que mantém o teste de "demora" vivo)
     try {
       const res = await doFetch(`${base}/interpretar`, {
         method: 'POST',
